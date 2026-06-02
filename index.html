@@ -532,11 +532,26 @@ button,input,select,textarea{font-family:var(--fb);outline:none}
   <div class="mfoot"><button class="mbtn g" onclick="doSaveStats()">Save Stats</button><button class="mbtn c" onclick="cm('m-stats')">Cancel</button></div>
 </div></div>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+
 <script>
 // =============================================================
 // CONSTANTS
 // =============================================================
 const ADMIN_PW = "UrbanCircle2025";
+
+  const SUPABASE_URL =
+  "https://tyvsulktmhazrfrelnmh.supabase.co";
+
+const SUPABASE_KEY =
+  "sb_publishable_4TV-_VbOIWYvCa3o65wgpw_wkldWtBL";
+
+const sb = supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+  
 const RATING_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const POSITIONS = {

@@ -679,6 +679,43 @@ const SEED_DATA = {
 // =============================================================
 function ld(k,fb){try{return JSON.parse(localStorage.getItem(k))||fb}catch{return fb}}
 function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+
+async function cloudSave(tableName, data){
+  const { error } = await sb
+    .from(tableName)
+    .upsert({
+      id: tableName,
+      data: data
+    });
+
+  if(error){
+    console.error("Cloud save error:", error);
+  }
+}
+
+async function cloudLoad(tableName){
+  const { data, error } = await sb
+    .from(tableName)
+    .select("*")
+    .limit(1);
+
+  if(error){
+    console.error("Cloud load error:", error);
+    return null;
+  }
+
+  async function testSupabase(){
+  const { data, error } = await sb
+    .from("clubs")
+    .select("*");
+
+  console.log("DATA:", data);
+  console.log("ERROR:", error);
+}
+
+  return data?.[0]?.data || null;
+}
+  
 const $ = id=>document.getElementById(id);
 
 let clubs    = ld("uc_clubs_v6",   SEED_CLUBS);

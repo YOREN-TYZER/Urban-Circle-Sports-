@@ -702,8 +702,9 @@ async function cloudLoad(tableName){
   if(error){
     console.error("Cloud load error:", error);
     return null;
-    return data?.[0]?.data || null;
+   
 }
+   return data?.[0]?.data || null;
   }
 
   async function testSupabase(){

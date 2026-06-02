@@ -728,6 +728,22 @@ let scorers  = ld("uc_scorers_v6", {});
 let lineups  = ld("uc_lineups_v6", {}); // {formation, slots:{ri_ci:pid}, subs:[pid,...]}
 // notif tracking: store which matchday+type we already notified
 let notifSent = ld("uc_notifs_v6", {});
+  async function uploadTest() {
+
+  const { error } = await sb
+    .from("clubs")
+    .insert([
+      {
+        id: "test1",
+        name: "Warriors FC",
+        short: "WAR",
+        sport: "Football",
+        tagline: "Test Club"
+      }
+    ]);
+
+  console.log("UPLOAD ERROR:", error);
+}
 
 let isAdmin=false, clubId=null, mdId=null, activeTab="players";
 let expPlayer=null, spOpen=true, lpOpen=true;

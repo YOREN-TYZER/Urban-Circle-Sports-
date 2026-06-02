@@ -744,6 +744,54 @@ let notifSent = ld("uc_notifs_v6", {});
 
   console.log("UPLOAD ERROR:", error);
 }
+  async function uploadWarriorsPlayers() {
+
+  const rows = clubData.warriors.players.map(p => ({
+    id: p.id,
+    club_id: "warriors",
+    name: p.name,
+    number: p.num,
+    position: p.pos,
+    goals: p.goals,
+    assists: p.assists,
+    games_played: p.gp,
+    image_url: p.img,
+    age: p.age,
+    nationality: p.nationality,
+    hometown: p.hometown,
+    height: p.height,
+    foot: p.foot,
+    shirt_name: p.shirtname,
+    bio: p.bio
+  }));
+
+  const { error } = await sb
+    .from("players")
+    .insert(rows);
+
+  console.log(error);
+}
+  async function uploadWarriorsMatchdays() {
+
+  const rows = clubData.warriors.matchdays.map(m => ({
+    id: m.id,
+    club_id: "warriors",
+    label: m.label,
+    opponent: m.opponent,
+    match_date: m.date,
+    kickoff_time: m.kickoffTime,
+    result: m.result,
+    status: m.status,
+    home_goals: m.homeGoals,
+    away_goals: m.awayGoals
+  }));
+
+  const { error } = await sb
+    .from("matchdays")
+    .insert(rows);
+
+  console.log(error);
+}
 
 let isAdmin=false, clubId=null, mdId=null, activeTab="players";
 let expPlayer=null, spOpen=true, lpOpen=true;

@@ -532,26 +532,11 @@ button,input,select,textarea{font-family:var(--fb);outline:none}
   <div class="mfoot"><button class="mbtn g" onclick="doSaveStats()">Save Stats</button><button class="mbtn c" onclick="cm('m-stats')">Cancel</button></div>
 </div></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-
 <script>
 // =============================================================
 // CONSTANTS
 // =============================================================
 const ADMIN_PW = "UrbanCircle2025";
-
-  const SUPABASE_URL =
-  "https://tyvsulktmhazrfrelnmh.supabase.co";
-
-const SUPABASE_KEY =
-  "sb_publishable_4TV-_VbOIWYvCa3o65wgpw_wkldWtBL";
-
-const sb = supabase.createClient(
-  SUPABASE_URL,
-  SUPABASE_KEY
-);
-  
 const RATING_WINDOW_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const POSITIONS = {
@@ -679,45 +664,6 @@ const SEED_DATA = {
 // =============================================================
 function ld(k,fb){try{return JSON.parse(localStorage.getItem(k))||fb}catch{return fb}}
 function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
-
-async function cloudSave(tableName, data){
-  const { error } = await sb
-    .from(tableName)
-    .upsert({
-      id: tableName,
-      data: data
-    });
-
-  if(error){
-    console.error("Cloud save error:", error);
-  }
-}
-
-async function cloudLoad(tableName){
-  const { data, error } = await sb
-    .from(tableName)
-    .select("*")
-    .limit(1);
-
-  if(error){
-    console.error("Cloud load error:", error);
-    return null;
-   
-}
-   return data?.[0]?.data || null;
-  }
-
-  async function testSupabase(){
-  const { data, error } = await sb
-    .from("clubs")
-    .select("*");
-
-  console.log("DATA:", data);
-  console.log("ERROR:", error);
-  }
-
-
-  
 const $ = id=>document.getElementById(id);
 
 let clubs    = ld("uc_clubs_v6",   SEED_CLUBS);
@@ -728,65 +674,6 @@ let scorers  = ld("uc_scorers_v6", {});
 let lineups  = ld("uc_lineups_v6", {}); // {formation, slots:{ri_ci:pid}, subs:[pid,...]}
 // notif tracking: store which matchday+type we already notified
 let notifSent = ld("uc_notifs_v6", {});
-  async function uploadTest() {
-
-  const { error } = await sb
-    .from("clubs")
-    .insert([
-      {
-        id: "test1",
-        name: "Warriors FC",
-        short: "WAR",
-        sport: "Football",
-        tagline: "Test Club"
-      }
-    ]);
-
-  console.log("UPLOAD ERROR:", error);
-}
-  async function uploadWarriorsPlayers() {
-
-  const rows = clubData.warriors.players.map(p => ({
-    id: p.id,
-    club_id: "warriors",
-    name: p.name,
-    number: p.num,
-    position: p.pos,
-    goals: p.goals,
-    assists: p.assists,
-    games_played: p.gp,
-    age: p.age,
-    nationality: p.nationality,
-    hometown: p.hometown
-  }));
-
-  const { error } = await sb
-    .from("players")
-    .insert(rows);
-
-  console.log("UPLOAD ERROR:", error);
-}
-  async function uploadWarriorsMatchdays() {
-
-  const rows = clubData.warriors.matchdays.map(m => ({
-    id: m.id,
-    club_id: "warriors",
-    label: m.label,
-    opponent: m.opponent,
-    match_date: m.date,
-    kickoff_time: m.kickoffTime,
-    result: m.result,
-    status: m.status,
-    home_goals: m.homeGoals,
-    away_goals: m.awayGoals
-  }));
-
-  const { error } = await sb
-    .from("matchdays")
-    .insert(rows);
-
-  console.log(error);
-}
 
 let isAdmin=false, clubId=null, mdId=null, activeTab="players";
 let expPlayer=null, spOpen=true, lpOpen=true;
@@ -1994,91 +1881,12 @@ function execConfirm(){
   _confirmCallback = null;
 }
 
-  async function loadFromSupabase() {
-
-  const { data: clubsData } =
-    await sb.from("clubs").select("*");
-
-  const { data: playersData } =
-    await sb.from("players").select("*");
-
-  const { data: matchdaysData } =
-    await sb.from("matchdays").select("*");
-
-  clubs = [];
-  clubData = {};
-
-  clubsData.forEach(c => {
-
-    clubs.push({
-      id: c.id,
-      name: c.name,
-      short: c.short,
-      sport: c.sport,
-      tagline: c.tagline
-    });
-
-    clubData[c.id] = {
-      players: [],
-      matchdays: [],
-      headlines: []
-    };
-
-  });
-
-  playersData.forEach(p => {
-
-    if (!clubData[p.club_id]) return;
-
-    clubData[p.club_id].players.push({
-      id: p.id,
-      name: p.name,
-      num: p.number,
-      pos: p.position,
-      goals: p.goals || 0,
-      assists: p.assists || 0,
-      gp: p.games_played || 0,
-      age: p.age || 0,
-      nationality: p.nationality || '',
-      hometown: p.hometown || ''
-    });
-
-  });
-
-  matchdaysData.forEach(m => {
-
-    if (!clubData[m.club_id]) return;
-
-    clubData[m.club_id].matchdays.push({
-      id: m.id,
-      label: m.label,
-      opponent: m.opponent,
-      date: m.match_date,
-      kickoffTime: m.kickoff_time,
-      result: m.result,
-      status: m.status
-    });
-
-  });
-
-  console.log("Loaded from Supabase");
-  console.log(clubs);
-  console.log(clubData);
-
-}
-
 // =============================================================
 // INIT
 // =============================================================
-(async () => {
-
-  await loadFromSupabase();
-
-  checkScheduledNotifs();
-  renderHome();
-  reqNotifPerm();
-
-})();
+checkScheduledNotifs();
+renderHome();
+reqNotifPerm();
 </script>
 
 <!-- Player Info / Edit Modal -->

@@ -755,21 +755,16 @@ let notifSent = ld("uc_notifs_v6", {});
     goals: p.goals,
     assists: p.assists,
     games_played: p.gp,
-    image_url: p.img,
     age: p.age,
     nationality: p.nationality,
-    hometown: p.hometown,
-    height: p.height,
-    foot: p.foot,
-    shirt_name: p.shirtname,
-    bio: p.bio
+    hometown: p.hometown
   }));
 
   const { error } = await sb
     .from("players")
     .insert(rows);
 
-  console.log(error);
+  console.log("UPLOAD ERROR:", error);
 }
   async function uploadWarriorsMatchdays() {
 

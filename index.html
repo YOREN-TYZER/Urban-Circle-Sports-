@@ -532,6 +532,18 @@ button,input,select,textarea{font-family:var(--fb);outline:none}
   <div class="mfoot"><button class="mbtn g" onclick="doSaveStats()">Save Stats</button><button class="mbtn c" onclick="cm('m-stats')">Cancel</button></div>
 </div></div>
 
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+const SUPABASE_URL = "https://nsjncrhwhbtzndhrxavr.supabase.co";
+const SUPABASE_KEY = "sb_publishable_U8E8_mVPoiaqA4PK8CyY3g_1iCdoSuO";
+
+const supabase = window.supabase.createClient(
+  SUPABASE_URL,
+  SUPABASE_KEY
+);
+</script>
+  
 <script>
 // =============================================================
 // CONSTANTS
@@ -662,8 +674,50 @@ const SEED_DATA = {
 // =============================================================
 // STATE
 // =============================================================
-function ld(k,fb){try{return JSON.parse(localStorage.getItem(k))||fb}catch{return fb}}
-function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+function ld(k,fb){
+  try{
+    return JSON.parse(localStorage.getItem(k)) || fb;
+  }catch{
+    return fb;
+  }
+}
+
+async function sv(k,v){
+  try{
+    localStorage.setItem(k,JSON.stringify(v));
+
+    await supabase
+      .from('app_state')
+      .upsert({
+        key:k,
+        data:v,
+        updated_at:new Date().toISOString()
+      });
+  }catch(e){
+    console.error(e);
+  }
+}
+
+  async function syncFromCloud() {
+  const { data } = await supabase
+    .from('app_state')
+    .select('*');
+
+  if (!data) return;
+
+  data.forEach(row => {
+    localStorage.setItem(
+      row.key,
+      JSON.stringify(row.data)
+    );
+  });
+
+  renderHome?.();
+  renderPlayers?.();
+  renderMd?.();
+}
+
+setInterval(syncFromCloud, 5000);
 const $ = id=>document.getElementById(id);
 
 let clubs    = ld("uc_clubs_v6",   SEED_CLUBS);
@@ -674,6 +728,41 @@ let scorers  = ld("uc_scorers_v6", {});
 let lineups  = ld("uc_lineups_v6", {}); // {formation, slots:{ri_ci:pid}, subs:[pid,...]}
 // notif tracking: store which matchday+type we already notified
 let notifSent = ld("uc_notifs_v6", {});
+
+  async function loadCloudData(){
+
+  const { data, error } = await supabase
+    .from('app_state')
+    .select('*');
+
+  if(error){
+    console.error(error);
+    return;
+  }
+
+  if(!data) return;
+
+  data.forEach(row=>{
+    localStorage.setItem(
+      row.key,
+      JSON.stringify(row.data)
+    );
+  });
+
+  clubs     = ld("uc_clubs_v6", SEED_CLUBS);
+  clubData  = ld("uc_data_v6", SEED_DATA);
+  ratings   = ld("uc_ratings_v6", {});
+  comments  = ld("uc_cmts_v6", {});
+  scorers   = ld("uc_scorers_v6", {});
+  lineups   = ld("uc_lineups_v6", {});
+  notifSent = ld("uc_notifs_v6", {});
+
+  renderHome?.();
+  renderPlayers?.();
+  renderMd?.();
+}
+
+loadCloudData();
 
 let isAdmin=false, clubId=null, mdId=null, activeTab="players";
 let expPlayer=null, spOpen=true, lpOpen=true;
@@ -1884,6 +1973,8 @@ function execConfirm(){
 // =============================================================
 // INIT
 // =============================================================
+setInterval(loadCloudData,5000);
+  
 checkScheduledNotifs();
 renderHome();
 reqNotifPerm();

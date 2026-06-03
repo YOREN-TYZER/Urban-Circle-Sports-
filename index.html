@@ -1994,12 +1994,91 @@ function execConfirm(){
   _confirmCallback = null;
 }
 
+  async function loadFromSupabase() {
+
+  const { data: clubsData } =
+    await sb.from("clubs").select("*");
+
+  const { data: playersData } =
+    await sb.from("players").select("*");
+
+  const { data: matchdaysData } =
+    await sb.from("matchdays").select("*");
+
+  clubs = [];
+  clubData = {};
+
+  clubsData.forEach(c => {
+
+    clubs.push({
+      id: c.id,
+      name: c.name,
+      short: c.short,
+      sport: c.sport,
+      tagline: c.tagline
+    });
+
+    clubData[c.id] = {
+      players: [],
+      matchdays: [],
+      headlines: []
+    };
+
+  });
+
+  playersData.forEach(p => {
+
+    if (!clubData[p.club_id]) return;
+
+    clubData[p.club_id].players.push({
+      id: p.id,
+      name: p.name,
+      num: p.number,
+      pos: p.position,
+      goals: p.goals || 0,
+      assists: p.assists || 0,
+      gp: p.games_played || 0,
+      age: p.age || 0,
+      nationality: p.nationality || '',
+      hometown: p.hometown || ''
+    });
+
+  });
+
+  matchdaysData.forEach(m => {
+
+    if (!clubData[m.club_id]) return;
+
+    clubData[m.club_id].matchdays.push({
+      id: m.id,
+      label: m.label,
+      opponent: m.opponent,
+      date: m.match_date,
+      kickoffTime: m.kickoff_time,
+      result: m.result,
+      status: m.status
+    });
+
+  });
+
+  console.log("Loaded from Supabase");
+  console.log(clubs);
+  console.log(clubData);
+
+}
+
 // =============================================================
 // INIT
 // =============================================================
-checkScheduledNotifs();
-renderHome();
-reqNotifPerm();
+(async () => {
+
+  await loadFromSupabase();
+
+  checkScheduledNotifs();
+  renderHome();
+  reqNotifPerm();
+
+})();
 </script>
 
 <!-- Player Info / Edit Modal -->

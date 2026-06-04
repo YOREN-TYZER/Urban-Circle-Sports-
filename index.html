@@ -22,7 +22,7 @@ button,input,select,textarea{font-family:var(--fb);outline:none}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
 
 /* HEADER */
-#hdr{position:sticky;top:0;z-index:300;background:rgba(10,13,26,.97);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 22px;height:60px;gap:12px}
+#hdr{position:sticky;top:0;z-index:300;background:rgba(10, 13, 26, 0.027);backdrop-filter:blur(14px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 22px;height:60px;gap:12px}
 .brand{display:flex;align-items:center;gap:11px;cursor:pointer;user-select:none;flex-shrink:0}
 .brand-icon{width:38px;height:38px;border-radius:9px;background:var(--border);border:2px solid var(--teal);display:flex;align-items:center;justify-content:center;font-family:var(--fh);font-weight:700;font-size:15px;color:var(--teal);letter-spacing:1px}
 .brand-lbl{font-family:var(--fh);font-size:15px;color:var(--teal);letter-spacing:2px;line-height:1.1}
@@ -45,7 +45,7 @@ button,input,select,textarea{font-family:var(--fb);outline:none}
 .live-dot{width:6px;height:6px;border-radius:50%;background:#fff;animation:pulse 1.2s infinite}
 
 /* HERO */
-#hero{background:linear-gradient(135deg,#0a0d1a 0%,#1d2d5a 55%,#0a1530 100%);border-radius:20px;padding:26px 32px;margin-bottom:28px;display:flex;align-items:center;gap:24px;border:1px solid var(--border);position:relative;overflow:hidden}
+#hero{background:linear-gradient(135deg,#0a0d1a00 0%,#1d2d5a 55%,#0a1530 100%);border-radius:20px;padding:26px 32px;margin-bottom:28px;display:flex;align-items:center;gap:24px;border:1px solid var(--border);position:relative;overflow:hidden}
 #hero::after{content:'';position:absolute;right:-40px;top:-40px;width:240px;height:240px;border-radius:50%;background:radial-gradient(circle,rgba(77,200,200,.07) 0%,transparent 70%)}
 #hero-logos{display:flex;gap:9px;flex-shrink:0}
 .hero-logo{width:56px;height:56px;object-fit:contain;border-radius:10px}
@@ -662,42 +662,17 @@ const SEED_DATA = {
 // =============================================================
 // STATE
 // =============================================================
-// ── API CONFIG ──────────────────────────────────────────────────────
-const API_BASE = 'https://urbancircle-api-production.up.railway.app/api';
-let adminToken = localStorage.getItem('uc_admin_token') || null;
-
-// API helper — all requests go through here
-async function api(method, path, body, isFormData) {
-  const headers = { 'x-fan-id': fanId };
-  if (adminToken) headers['Authorization'] = 'Bearer ' + adminToken;
-  if (body && !isFormData) headers['Content-Type'] = 'application/json';
-  try {
-    const res = await fetch(API_BASE + path, {
-      method,
-      headers,
-      body: isFormData ? body : (body ? JSON.stringify(body) : undefined)
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'API error');
-    return data;
-  } catch(e) {
-    console.error('API error:', method, path, e.message);
-    throw e;
-  }
-}
-
-// Keep localStorage only for fanId and notifSent
 function ld(k,fb){try{return JSON.parse(localStorage.getItem(k))||fb}catch{return fb}}
 function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
 const $ = id=>document.getElementById(id);
 
-// All data now comes from API — these are local caches
-let clubs    = [];
-let clubData = {}; // { clubId: { players:[], matchdays:[], headlines:[] } }
-let ratings  = {}; // local cache of matchday ratings
-let comments = {}; // local cache of comments
-let scorers  = {}; // local cache of scorers
-let lineups  = {}; // local cache of lineups
+let clubs    = ld("uc_clubs_v6",   SEED_CLUBS);
+let clubData = ld("uc_data_v6",    SEED_DATA);
+let ratings  = ld("uc_ratings_v6", {});
+let comments = ld("uc_cmts_v6",    {});
+let scorers  = ld("uc_scorers_v6", {});
+let lineups  = ld("uc_lineups_v6", {}); // {formation, slots:{ri_ci:pid}, subs:[pid,...]}
+// notif tracking: store which matchday+type we already notified
 let notifSent = ld("uc_notifs_v6", {});
 
 let isAdmin=false, clubId=null, mdId=null, activeTab="players";
@@ -823,18 +798,15 @@ function updateLiveIndicator(){
 // =============================================================
 // HELPERS
 // =============================================================
-function getClub(id){return clubs.find(c=>c._id===id||c.id===id)}
+function getClub(id){return clubs.find(c=>c.id===id)}
 function getData(id){return clubData[id]}
 function compRating(map){const v=Object.values(map||{});return v.length?Math.min(5,v.reduce((s,r)=>s+r.stars,0)/v.length):0}
 function overallRating(cid,pid){return compRating(ratings[cid+'_'+pid]||{})}
 function mdRating(cid,mid,pid){return compRating(ratings[cid+'_'+mid+'_'+pid]||{})}
-async function rateP(cid,mid,pid,stars){
-  // optimistic update
+function rateP(cid,mid,pid,stars){
   ratings[cid+'_'+mid+'_'+pid]={...(ratings[cid+'_'+mid+'_'+pid]||{}),[fanId]:{stars,ts:Date.now()}};
   ratings[cid+'_'+pid]={...(ratings[cid+'_'+pid]||{}),[fanId+'_'+mid]:{stars,ts:Date.now()}};
-  try {
-    await api('POST',`/clubs/${cid}/matchdays/${mid}/ratings`,{playerId:pid,stars});
-  } catch(e){ console.error('Rating failed',e.message); }
+  sv("uc_ratings_v6",ratings);
 }
 function rcol(res){if(!res)return{fg:'#888',bg:'#0a0d1a'};if(res.includes('W'))return{fg:'#2ecc71',bg:'#0a1a0a'};if(res.includes('D'))return{fg:'#f39c12',bg:'#1a140a'};return{fg:'#e74c3c',bg:'#1a0a0a'}}
 function logoSrc(club){return club.logo||DEF_LOGOS[club.id]||''}
@@ -860,106 +832,23 @@ function fmtKickoff(md){if(!md.date)return '';const t=md.kickoffTime?` @ ${md.ki
 // NAV
 // =============================================================
 function showV(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+id).classList.add('active')}
-async function goHome(){
-  clubId=null;mdId=null;
-  $('back-btn').style.display='none';$('hdr-sep').style.display='none';$('hdr-club').style.display='none';
-  document.documentElement.style.removeProperty('--c-accent');
-  document.documentElement.style.removeProperty('--c-primary');
-  showV('home');
-  await loadClubs();
-  renderHome();
-}
+function goHome(){clubId=null;mdId=null;$('back-btn').style.display='none';$('hdr-sep').style.display='none';$('hdr-club').style.display='none';document.documentElement.style.removeProperty('--c-accent');document.documentElement.style.removeProperty('--c-primary');showV('home');renderHome()}
 function goBack(){if(mdId){mdId=null;showV('club');renderClub()}else goHome()}
-async function enterClub(id){
-  clubId=id;mdId=null;activeTab='players';
-  await loadClubData(id);
-  const c=getClub(id);
+function enterClub(id){
+  clubId=id;mdId=null;activeTab='players';const c=getClub(id);
   document.documentElement.style.setProperty('--c-accent',c.accent);
   document.documentElement.style.setProperty('--c-primary',c.primary);
   $('back-btn').style.display='';$('hdr-sep').style.display='';
   $('hdr-club').textContent=c.short;$('hdr-club').style.display='';
   showV('club');renderClub();
 }
-async function enterMd(id){
-  mdId=id;expPlayer=null;spOpen=true;lpOpen=true;
-  await loadMatchdayData(id);
-  showV('matchday');renderMd();reqNotifPerm();
-}
-
-// =============================================================
-// API LOAD FUNCTIONS
-// =============================================================
-async function loadClubs(){
-  try {
-    clubs = await api('GET','/clubs');
-    // Rebuild clubData structure preserving local cache
-    clubs.forEach(cl=>{ if(!clubData[cl._id]) clubData[cl._id]={players:[],matchdays:[],headlines:[]}; });
-  } catch(e){ console.error('loadClubs failed',e); }
-}
-
-async function loadClubData(cid){
-  try {
-    const [players, matchdays, headlines] = await Promise.all([
-      api('GET',`/clubs/${cid}/players`),
-      api('GET',`/clubs/${cid}/matchdays`),
-      api('GET',`/clubs/${cid}/headlines`),
-    ]);
-    // Normalize player fields (_id -> id)
-    const normPlayers = players.map(p=>({...p, id:p._id}));
-    clubData[cid] = { players: normPlayers, matchdays, headlines };
-  } catch(e){ console.error('loadClubData failed',e); }
-}
-
-async function loadMatchdayData(mid){
-  if(!clubId) return;
-  try {
-    const [sc, lu, rats, cmts] = await Promise.all([
-      api('GET',`/clubs/${clubId}/matchdays/${mid}/scorers`),
-      api('GET',`/clubs/${clubId}/matchdays/${mid}/lineup`),
-      api('GET',`/clubs/${clubId}/matchdays/${mid}/ratings`),
-      api('GET',`/clubs/${clubId}/matchdays/${mid}/comments`),
-    ]);
-    scorers[clubId+'_'+mid] = sc;
-    lineups[clubId+'_'+mid] = lu;
-    // Build ratings cache
-    rats.forEach(r=>{ ratings[clubId+'_'+mid+'_'+r.playerId]={[fanId]:{stars:r.mine||0}}; if(r.avg){ ratings[clubId+'_'+r.playerId]={[fanId+'_'+mid]:{stars:r.mine||0}}; } });
-    // Build comments cache keyed by playerId
-    cmts.forEach(c=>{ const key=clubId+'_'+mid+'_'+c.playerId; if(!comments[key])comments[key]=[]; if(!comments[key].find(x=>x.id===c._id)) comments[key].push({id:c._id,fanId:c.fanId,text:c.text,ts:new Date(c.createdAt).toLocaleString()}); });
-  } catch(e){ console.error('loadMatchdayData failed',e); }
-}
-
-// Reload overall ratings for all players in a club
-async function loadOverallRatings(cid){
-  try {
-    const data = await api('GET',`/clubs/${cid}/overall-ratings`);
-    data.forEach(r=>{
-      if(!ratings[cid+'_'+r.playerId]) ratings[cid+'_'+r.playerId]={};
-      ratings[cid+'_'+r.playerId]['_avg'] = { stars: r.avg };
-    });
-  } catch(e){}
-}
+function enterMd(id){mdId=id;expPlayer=null;spOpen=true;lpOpen=true;showV('matchday');renderMd();reqNotifPerm()}
 
 // =============================================================
 // ADMIN
 // =============================================================
-function handleAdminClick(){
-  if(isAdmin){
-    isAdmin=false; adminToken=null;
-    localStorage.removeItem('uc_admin_token');
-    updAB();refreshView();
-  } else openModal('m-admin');
-}
-async function doAdminLogin(){
-  try {
-    const data = await api('POST','/auth/login',{password:$('ap').value});
-    adminToken = data.token;
-    localStorage.setItem('uc_admin_token', adminToken);
-    isAdmin=true;cm('m-admin');$('ap').value='';$('ap-err').style.display='none';
-    updAB();refreshView();
-  } catch(e) {
-    $('ap-err').style.display='';
-  }
-}
+function handleAdminClick(){if(isAdmin){isAdmin=false;updAB();refreshView()}else openModal('m-admin')}
+function doAdminLogin(){if($('ap').value===ADMIN_PW){isAdmin=true;cm('m-admin');$('ap').value='';$('ap-err').style.display='none';updAB();refreshView()}else $('ap-err').style.display=''}
 function updAB(){const b=$('admin-btn');b.textContent=isAdmin?'🔓 Admin Mode':'Admin Login';b.classList.toggle('on',isAdmin)}
 function refreshView(){const v=document.querySelector('.view.active');if(!v)return;if(v.id==='view-home')renderHome();else if(v.id==='view-club')renderClub();else if(v.id==='view-matchday')renderMd()}
 
@@ -1067,14 +956,11 @@ function pcH(p,club){
   </div>`;
 }
 function delPlayer(pid){
-  const p=getData(clubId)?.players?.find(pl=>pl.id===pid||pl._id===pid);
-  showConfirm('🗑 Remove Player',`Remove ${p?.name||'this player'} from the squad?`,'Yes, Remove',async()=>{
-    try {
-      await api('DELETE',`/clubs/${clubId}/players/${pid}`);
-      clubData[clubId].players=clubData[clubId].players.filter(pl=>pl.id!==pid&&pl._id!==pid);
-      renderPlayers();renderTabAct();
-      showToast('🗑 Player Removed',`${p?.name||'Player'} removed.`);
-    } catch(e){ showToast('❌ Error',e.message); }
+  const p=getData(clubId)?.players?.find(pl=>pl.id===pid);
+  showConfirm('🗑 Remove Player',`Remove ${p?.name||'this player'} from the squad?`,'Yes, Remove',()=>{
+    clubData[clubId].players=clubData[clubId].players.filter(pl=>pl.id!==pid);
+    sv('uc_data_v6',clubData);renderPlayers();renderTabAct();
+    showToast('🗑 Player Removed',`${p?.name||'Player'} has been removed.`);
   });
 }
 
@@ -1112,16 +998,25 @@ function renderMatchdays(){
   }).join('');
 }
 function delMd(mid){
-  showConfirm('🗑 Delete Matchday','Remove this matchday? All ratings, comments and lineup data will be permanently deleted.','Yes, Delete',async()=>{
-    try {
-      await api('DELETE',`/clubs/${clubId}/matchdays/${mid}`);
-      clubData[clubId].matchdays=clubData[clubId].matchdays.filter(m=>m._id!==mid&&m.id!==mid);
-      delete scorers[clubId+'_'+mid]; delete lineups[clubId+'_'+mid];
-      Object.keys(ratings).filter(k=>k.includes(mid)).forEach(k=>delete ratings[k]);
-      Object.keys(comments).filter(k=>k.includes(mid)).forEach(k=>delete comments[k]);
-      renderMatchdays();
-      showToast('🗑 Matchday Deleted','Matchday and all data removed.');
-    } catch(e){ showToast('❌ Error',e.message); }
+  showConfirm(
+    '🗑 Delete Matchday',
+    'Remove this matchday? All ratings, comments, scorers and lineup data will also be permanently deleted.',
+    'Yes, Delete',
+    ()=>{
+  const players=getData(clubId)?.players||[];
+  players.forEach(p=>{
+    delete ratings[clubId+'_'+mid+'_'+p.id];
+    delete comments[clubId+'_'+mid+'_'+p.id];
+    const rk=clubId+'_'+p.id;
+    if(ratings[rk])Object.keys(ratings[rk]).forEach(k=>{if(k.includes(mid))delete ratings[rk][k];});
+  });
+  delete scorers[clubId+'_'+mid];
+  delete lineups[clubId+'_'+mid];
+  clubData[clubId].matchdays=clubData[clubId].matchdays.filter(m=>m.id!==mid);
+    sv("uc_data_v6",clubData);sv("uc_ratings_v6",ratings);sv("uc_cmts_v6",comments);
+    sv("uc_scorers_v6",scorers);sv("uc_lineups_v6",lineups);
+    renderMatchdays();
+    showToast('🗑 Matchday Deleted','Matchday and all associated data removed.');
   });
 }
 
@@ -1131,12 +1026,9 @@ function renderNews(){
   $('news-list').innerHTML=headlines.map(h=>`<div class="news-row"><div><div class="nr-title">${h.title}</div><div class="nr-date">${h.date}</div></div>${isAdmin?`<button class="nr-del" onclick="delNews(${h.id})">×</button>`:''}</div>`).join('');
 }
 function delNews(hid){
-  showConfirm('🗑 Delete Headline','Remove this news headline?','Yes, Delete',async()=>{
-    try {
-      await api('DELETE',`/clubs/${clubId}/headlines/${hid}`);
-      clubData[clubId].headlines=clubData[clubId].headlines.filter(h=>h._id!==hid&&h.id!==hid);
-      renderNews();
-    } catch(e){ showToast('❌ Error',e.message); }
+  showConfirm('🗑 Delete Headline','Remove this news headline?','Yes, Delete',()=>{
+    clubData[clubId].headlines=clubData[clubId].headlines.filter(h=>h.id!==hid);
+    sv('uc_data_v6',clubData);renderNews();
   });
 }
 
@@ -1259,28 +1151,26 @@ function renderScorers(club,data,md){
     </div>
   </div>`;
 }
-async function addScorer(key){
-  const pid=$('sc-p').value,type=$('sc-t').value,min=$('sc-m').value;
-  if(!pid)return;
-  try {
-    await api('POST',`/clubs/${clubId}/matchdays/${mdId}/scorers/add`,{type,playerId:pid,minute:min||''});
-    // reload scorers and players
-    scorers[key]=await api('GET',`/clubs/${clubId}/matchdays/${mdId}/scorers`);
-    await loadClubData(clubId);
-    const md=getData(clubId).matchdays.find(m=>m._id===mdId||m.id===mdId);
-    renderScorers(getClub(clubId),getData(clubId),md);
-    renderLineup(getClub(clubId),getData(clubId),md);
-  } catch(e){ showToast('❌ Error',e.message); }
+function addScorer(key){
+  const pid=$('sc-p').value,type=$('sc-t').value,min=$('sc-m').value;if(!pid)return;
+  const player=getData(clubId).players.find(p=>p.id===pid);
+  if(!scorers[key])scorers[key]={goals:[],assists:[]};
+  scorers[key][type].push({pid,name:player.name,minute:min||''});
+  if(type==='goals')clubData[clubId].players.find(p=>p.id===pid).goals++;
+  else clubData[clubId].players.find(p=>p.id===pid).assists++;
+  sv("uc_scorers_v6",scorers);sv("uc_data_v6",clubData);
+  const md=getData(clubId).matchdays.find(m=>m.id===mdId);
+  renderScorers(getClub(clubId),getData(clubId),md);
+  renderLineup(getClub(clubId),getData(clubId),md);
 }
-async function delScorer(key,type,idx){
-  try {
-    await api('DELETE',`/clubs/${clubId}/matchdays/${mdId}/scorers/${type}/${idx}`);
-    scorers[key]=await api('GET',`/clubs/${clubId}/matchdays/${mdId}/scorers`);
-    await loadClubData(clubId);
-    const md=getData(clubId).matchdays.find(m=>m._id===mdId||m.id===mdId);
-    renderScorers(getClub(clubId),getData(clubId),md);
-    renderLineup(getClub(clubId),getData(clubId),md);
-  } catch(e){ showToast('❌ Error',e.message); }
+function delScorer(key,type,idx){
+  if(!scorers[key])return;
+  const rm=scorers[key][type].splice(idx,1)[0];
+  if(rm?.pid){const p=clubData[clubId].players.find(pl=>pl.id===rm.pid);if(p){if(type==='goals')p.goals=Math.max(0,p.goals-1);else p.assists=Math.max(0,p.assists-1)}}
+  sv("uc_scorers_v6",scorers);sv("uc_data_v6",clubData);
+  const md=getData(clubId).matchdays.find(m=>m.id===mdId);
+  renderScorers(getClub(clubId),getData(clubId),md);
+  renderLineup(getClub(clubId),getData(clubId),md);
 }
 
 // =============================================================
@@ -1486,7 +1376,7 @@ function delSub(key,idx){
   lineups[key].subs.splice(idx,1);sv("uc_lineups_v6",lineups);
   renderLineup(getClub(clubId),getData(clubId),getData(clubId).matchdays.find(m=>m.id===mdId));
 }
-async function saveLineup(key){
+function saveLineup(key){
   const lu=lineups[key]||{formation:'',slots:{},subs:[]};
   document.querySelectorAll('.slot-sel').forEach(s=>{lu.slots[s.dataset.slot]=s.value});
   const subInEls=document.querySelectorAll('.sub-in-sel');
@@ -1494,17 +1384,17 @@ async function saveLineup(key){
   const subMinEls=document.querySelectorAll('.sub-min-inp');
   lu.subs=[];
   subInEls.forEach((el,i)=>{
-    lu.subs.push({in:el.value,out:subOutEls[i]?.value||'',minute:subMinEls[i]?.value||''});
+    const inPid=el.value,outPid=subOutEls[i]?.value||'',minute=subMinEls[i]?.value||'';
+    lu.subs.push({in:inPid,out:outPid,minute});
   });
-  try {
-    const saved=await api('PUT',`/clubs/${clubId}/matchdays/${mdId}/lineup`,{formation:lu.formation,slots:lu.slots,subs:lu.subs});
-    lineups[key]=saved;
-    const md=getData(clubId).matchdays.find(m=>m._id===mdId||m.id===mdId);
-    const club=getClub(clubId);
-    renderLineup(club,getData(clubId),md);
-    showToast('✅ Lineup Saved',`${club.short} lineup saved!`);
-    sendNotif('📋 Lineup Updated',`${club.short} lineup posted for vs ${md.opponent}.`);
-  } catch(e){ showToast('❌ Error',e.message); }
+  lineups[key]=lu;sv("uc_lineups_v6",lineups);
+  const md=getData(clubId).matchdays.find(m=>m.id===mdId);
+  const club=getClub(clubId);
+  renderLineup(club,getData(clubId),md);
+  showToast('✅ Lineup Saved',`${club.short} lineup has been updated!`);
+  // Notify about lineup update
+  const notifKey=clubId+'_'+mdId+'_lineup_'+Date.now().toString().slice(-6);
+  sendNotif('📋 Lineup Updated',`${club.short} lineup has been posted for the match vs ${md.opponent}.`);
 }
 
 // MD players list
@@ -1621,25 +1511,19 @@ function toggleCmts(pid){
   const p=data.players.find(pl=>pl.id===pid),el=$('mp_'+pid);
   if(el&&p)el.outerHTML=mpH(p,club,md,isRatingOpen(md),isEligible(pid));
 }
-async function postCmt(pid){
-  const md=getData(clubId)?.matchdays?.find(m=>m._id===mdId||m.id===mdId);
+function postCmt(pid){
+  const md=getData(clubId)?.matchdays?.find(m=>m.id===mdId);
   if(!md||!isRatingOpen(md))return;
   const inp=$('ci_'+pid),text=inp?.value?.trim();if(!text)return;
-  try {
-    const cmt=await api('POST',`/clubs/${clubId}/matchdays/${mdId}/comments`,{playerId:pid,text});
-    const key=clubId+'_'+mdId+'_'+pid;
-    if(!comments[key])comments[key]=[];
-    comments[key].push({id:cmt._id,fanId:cmt.fanId,text:cmt.text,ts:new Date(cmt.createdAt).toLocaleString()});
-    reRenderMp(pid);
-  } catch(e){ showToast('❌ Error',e.message); }
+  const key=clubId+'_'+mdId+'_'+pid;
+  if(!comments[key])comments[key]=[];
+  comments[key].push({id:Date.now().toString(),fanId,text,ts:new Date().toLocaleString()});
+  sv("uc_cmts_v6",comments);reRenderMp(pid);
 }
-async function delCmt(pid,cid){
-  try {
-    await api('DELETE',`/clubs/${clubId}/matchdays/${mdId}/comments/${cid}`);
-    const key=clubId+'_'+mdId+'_'+pid;
-    if(comments[key])comments[key]=comments[key].filter(c=>c.id!==cid);
-    reRenderMp(pid);
-  } catch(e){ showToast('❌ Error',e.message); }
+function delCmt(pid,cid){
+  const key=clubId+'_'+mdId+'_'+pid;
+  if(comments[key])comments[key]=comments[key].filter(c=>c.id!==cid);
+  sv("uc_cmts_v6",comments);reRenderMp(pid);
 }
 
 // =============================================================
@@ -1663,36 +1547,12 @@ function rmLogo(){newLogoData=null;const club=getClub(clubId);$('club-logo-pre')
 function syncC(k){const v=$('ec-'+k+'-c').value;$('ec-'+k+'-h').value=v;updClubPrev()}
 function syncCH(k){const v=$('ec-'+k+'-h').value;if(/^#[0-9a-fA-F]{6}$/.test(v)){$('ec-'+k+'-c').value=v;updClubPrev()}}
 function updClubPrev(){const name=$('ec-name').value||'Club Name',tag=$('ec-tag').value||'Tagline',pri=$('ec-p-h').value||'#1d2d5a',acc=$('ec-a-h').value||'#4dc8c8';const box=$('ec-prev');box.style.background=pri;box.style.borderColor=acc;$('ec-pname').textContent=name;$('ec-ptag').textContent=tag;$('ec-ptag').style.color=acc}
-async function saveClub(){
-  const club=getClub(clubId);if(!club)return;
-  const update={
-    name:$('ec-name').value.trim()||club.name,
-    short:$('ec-short').value.trim()||club.short,
-    tagline:$('ec-tag').value.trim(),
-    primary:$('ec-p-h').value||club.primary,
-    accent:$('ec-a-h').value||club.accent,
-    highlight:$('ec-h-h').value||club.highlight,
-  };
-  try {
-    const updated = await api('PATCH',`/clubs/${clubId}`,update);
-    const idx=clubs.findIndex(c=>c._id===clubId);
-    if(idx>=0) clubs[idx]={...clubs[idx],...updated};
-    // Upload logo if changed
-    if(newLogoData && newLogoData.startsWith('data:')){
-      const blob=await(await fetch(newLogoData)).blob();
-      const fd=new FormData();fd.append('logo',blob,'logo.png');
-      const res=await api('POST',`/clubs/${clubId}/logo`,fd,true);
-      if(idx>=0) clubs[idx].logo=res.logo;
-    } else if(newLogoData===null){
-      await api('DELETE',`/clubs/${clubId}/logo`);
-      if(idx>=0) clubs[idx].logo=null;
-    }
-    document.documentElement.style.setProperty('--c-accent',update.accent);
-    document.documentElement.style.setProperty('--c-primary',update.primary);
-    $('hdr-club').textContent=update.short;
-    cm('m-club');renderClub();
-    showToast('✅ Club Updated','Club details saved successfully.');
-  } catch(e){ showToast('❌ Error',e.message); }
+function saveClub(){
+  const idx=clubs.findIndex(c=>c.id===clubId);if(idx<0)return;
+  clubs[idx].name=$('ec-name').value.trim()||clubs[idx].name;clubs[idx].short=$('ec-short').value.trim()||clubs[idx].short;clubs[idx].tagline=$('ec-tag').value.trim();
+  clubs[idx].primary=$('ec-p-h').value||clubs[idx].primary;clubs[idx].accent=$('ec-a-h').value||clubs[idx].accent;clubs[idx].highlight=$('ec-h-h').value||clubs[idx].highlight;
+  if(newLogoData!==undefined)clubs[idx].logo=newLogoData;
+  sv("uc_clubs_v6",clubs);document.documentElement.style.setProperty('--c-accent',clubs[idx].accent);document.documentElement.style.setProperty('--c-primary',clubs[idx].primary);$('hdr-club').textContent=clubs[idx].short;cm('m-club');renderClub();
 }
 
 function openPp(pid){
@@ -1702,48 +1562,22 @@ function openPp(pid){
 }
 function onPpUpload(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{newPicData=ev.target.result;$('pp-pre-wrap').innerHTML=`<img class="pp-pre" src="${newPicData}"/>`;$('rm-pp-btn').style.display=''};r.readAsDataURL(file)}
 function rmPlayerPic(){newPicData=null;const p=getData(clubId).players.find(pl=>pl.id===editingPicPid),club=getClub(clubId);$('pp-pre-wrap').innerHTML=`<div class="pp-pre-av" style="border-color:${club.accent};color:${club.accent}">${p.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase()}</div>`;$('rm-pp-btn').style.display='none'}
-async function savePp(){
-  if(newPicData===undefined){cm('m-pp');return;}
-  try {
-    if(newPicData && newPicData.startsWith('data:')){
-      const blob=await(await fetch(newPicData)).blob();
-      const fd=new FormData();fd.append('photo',blob,'photo.jpg');
-      const res=await api('POST',`/clubs/${clubId}/players/${editingPicPid}/photo`,fd,true);
-      const p=clubData[clubId].players.find(pl=>pl.id===editingPicPid||pl._id===editingPicPid);
-      if(p) p.img=res.img;
-    } else if(newPicData===null){
-      await api('DELETE',`/clubs/${clubId}/players/${editingPicPid}/photo`);
-      const p=clubData[clubId].players.find(pl=>pl.id===editingPicPid||pl._id===editingPicPid);
-      if(p) p.img=null;
-    }
-    cm('m-pp');renderPlayers();
-    showToast('✅ Photo Updated','Player photo saved.');
-  } catch(e){ showToast('❌ Error',e.message); }
-}
+function savePp(){if(newPicData===undefined){cm('m-pp');return}const p=clubData[clubId].players.find(pl=>pl.id===editingPicPid);if(p)p.img=newPicData;sv("uc_data_v6",clubData);cm('m-pp');renderPlayers()}
 
 function openAddPlayer(){const club=getClub(clubId);$('np-pos').innerHTML=POSITIONS[club.sport].map(p=>`<option value="${p}">${p}</option>`).join('');$('np-name').value='';$('np-num').value='';openModal('m-add-player')}
-async function doAddPlayer(){
-  const name=$('np-name').value.trim(),num=parseInt($('np-num').value)||1,pos=$('np-pos').value;
-  if(!name)return;
-  try {
-    const p=await api('POST',`/clubs/${clubId}/players`,{name,num,pos});
-    clubData[clubId].players.push({...p,id:p._id});
-    cm('m-add-player');renderPlayers();renderTabAct();
-    showToast('✅ Player Added',`${name} added to the squad.`);
-  } catch(e){ showToast('❌ Error',e.message); }
-}
+function doAddPlayer(){const name=$('np-name').value.trim(),num=parseInt($('np-num').value)||1,pos=$('np-pos').value;if(!name)return;clubData[clubId].players.push({id:"p"+Date.now(),name,num,pos,goals:0,assists:0,gp:0,img:null,age:0,nationality:"",hometown:"",height:0,foot:"",shirtname:"",bio:""});sv("uc_data_v6",clubData);cm('m-add-player');renderPlayers();renderTabAct()}
 
 function openAddMd(){$('nm-lbl').value='';$('nm-opp').value='';$('nm-date').value='';$('nm-time').value='';$('nm-res').value='';openModal('m-add-md')}
-async function doAddMd(){
-  const lbl=$('nm-lbl').value.trim(),opp=$('nm-opp').value.trim(),
-        date=$('nm-date').value,time=$('nm-time').value,res=$('nm-res').value.trim();
+function doAddMd(){
+  const lbl=$('nm-lbl').value.trim(),opp=$('nm-opp').value.trim(),date=$('nm-date').value,time=$('nm-time').value,res=$('nm-res').value.trim();
   if(!lbl||!opp)return;
-  try {
-    const md=await api('POST',`/clubs/${clubId}/matchdays`,{label:lbl,opponent:opp,date,kickoffTime:time,result:res,status:'upcoming'});
-    clubData[clubId].matchdays.unshift(md);
-    cm('m-add-md');renderMatchdays();
-    if(date&&time) sendNotif('📅 New Match Added',`${getClub(clubId).short} vs ${opp} on ${date} @ ${time}`);
-  } catch(e){ showToast('❌ Error',e.message); }
+  const newMd={id:"md"+Date.now(),label:lbl,opponent:opp,date,kickoffTime:time,result:res,status:'upcoming'};
+  clubData[clubId].matchdays.push(newMd);sv("uc_data_v6",clubData);cm('m-add-md');renderMatchdays();
+  // Schedule notification check
+  if(date&&time){
+    const club=getClub(clubId);
+    sendNotif('📅 New Match Added',`${club.short} vs ${opp} on ${date} @ ${time}. Notifications will fire 1 hour before kick-off.`);
+  }
 }
 
 let editMdId=null;
@@ -1776,38 +1610,54 @@ function openEditMd(mid){
 function toggleRatingOverride(){
   // visual hint based on status — no DOM changes needed, just informational
 }
-async function doSaveMdEdit(){
-  const md=clubData[clubId].matchdays.find(m=>m._id===editMdId||m.id===editMdId);if(!md)return;
+function doSaveMdEdit(){
+  const md=clubData[clubId].matchdays.find(m=>m.id===editMdId);if(!md)return;
   const oldStatus=md.status;
-  const roDate=$('er-rating-date').value,roTime=$('er-rating-time').value;
-  const update={
-    label:$('er-lbl').value.trim()||md.label,
-    opponent:$('er-opp').value.trim()||md.opponent,
-    result:$('er-v').value.trim(),
-    date:$('er-date').value,
-    kickoffTime:$('er-time').value,
-    status:$('er-status').value,
-    homeGoals:parseInt($('er-home').value)||0,
-    awayGoals:parseInt($('er-away').value)||0,
-    ratingWindowHrs:parseInt($('er-window').value)||24,
-    forceClose:$('er-force-close').checked,
-    ratingOpenOverride:roDate?new Date(roDate+'T'+(roTime||'00:00')).getTime():null,
-  };
-  if(update.forceClose) update.status='finished';
-  try {
-    const updated=await api('PATCH',`/clubs/${clubId}/matchdays/${editMdId}`,update);
-    Object.assign(md,updated);
-    cm('m-edit-md');
-    const club=getClub(clubId);
-    if(oldStatus!=='live'&&updated.status==='live') sendNotif('🔴 Match is LIVE!',`${club.short} vs ${updated.opponent} is live!`);
-    else sendNotif('📋 Match Updated',`${club.short} vs ${updated.opponent} saved.`);
-    if(mdId===editMdId) renderMd(); else { renderMatchdays(); updateLiveIndicator(); }
-  } catch(e){ showToast('❌ Error',e.message); }
+
+  // Basic
+  md.label        = $('er-lbl').value.trim()||md.label;
+  md.opponent     = $('er-opp').value.trim()||md.opponent;
+  md.result       = $('er-v').value.trim();
+  md.date         = $('er-date').value;
+  md.kickoffTime  = $('er-time').value;
+  md.status       = $('er-status').value;
+  md.homeGoals    = parseInt($('er-home').value)||0;
+  md.awayGoals    = parseInt($('er-away').value)||0;
+
+  // Rating window
+  md.ratingWindowHrs = parseInt($('er-window').value)||24;
+  md.forceClose      = $('er-force-close').checked;
+
+  // Rating open override
+  const roDate=$('er-rating-date').value, roTime=$('er-rating-time').value;
+  if(roDate){
+    md.ratingOpenOverride = new Date(roDate+'T'+(roTime||'00:00')).getTime();
+  } else {
+    md.ratingOpenOverride = null;
+  }
+
+  // If force-close ticked → mark finished
+  if(md.forceClose) md.status='finished';
+
+  sv("uc_data_v6",clubData);
+  cm('m-edit-md');
+
+  const club=getClub(clubId);
+  if(oldStatus!=='live'&&md.status==='live'){
+    sendNotif('🔴 Match is LIVE!',`${club.short} vs ${md.opponent} is live! Rate the players.`);
+  } else {
+    sendNotif('📋 Match Updated',`${club.short} vs ${md.opponent} settings saved.`);
+  }
+  if(mdId===editMdId) renderMd(); else { renderMatchdays(); updateLiveIndicator(); }
 }
 function deleteCurrentMatchday(){
-  const md=getData(clubId)?.matchdays?.find(m=>m._id===mdId||m.id===mdId);
+  const md=getData(clubId)?.matchdays?.find(m=>m.id===mdId);
   if(!md)return;
-  showConfirm('🗑 Delete Matchday',`Permanently delete "${md.label} vs ${md.opponent}"?`,'Yes, Delete All',async()=>{
+  showConfirm(
+    '🗑 Delete Matchday',
+    `Permanently delete "${md.label} vs ${md.opponent}"? All ratings, comments, scorers and lineup data will also be removed.`,
+    'Yes, Delete All',
+    ()=>{
   // Remove all ratings/comments for this matchday
   const players=getData(clubId)?.players||[];
   players.forEach(p=>{
@@ -1821,37 +1671,16 @@ function deleteCurrentMatchday(){
   clubData[clubId].matchdays=clubData[clubId].matchdays.filter(m=>m.id!==mdId);
   sv('uc_data_v6',clubData);sv('uc_ratings_v6',ratings);sv('uc_cmts_v6',comments);
   sv('uc_scorers_v6',scorers);sv('uc_lineups_v6',lineups);
-    try {
-      await api('DELETE',`/clubs/${clubId}/matchdays/${mdId}`);
-      clubData[clubId].matchdays=clubData[clubId].matchdays.filter(m=>m._id!==mdId&&m.id!==mdId);
-      delete scorers[clubId+'_'+mdId]; delete lineups[clubId+'_'+mdId];
-      mdId=null;showV('club');renderClub();
-      showToast('🗑 Matchday Deleted','Matchday removed.');
-    } catch(e){ showToast('❌ Error',e.message); }
+    mdId=null;showV('club');renderClub();
+    showToast('🗑 Matchday Deleted','Matchday removed successfully.');
   });
 }
 
 function openAddNews(){$('nh-t').value='';$('nh-d').value=new Date().toISOString().split('T')[0];openModal('m-news')}
-async function doAddHeadline(){
-  const t=$('nh-t').value.trim(),d=$('nh-d').value;if(!t)return;
-  try {
-    const h=await api('POST',`/clubs/${clubId}/headlines`,{title:t,date:d});
-    clubData[clubId].headlines.unshift(h);
-    cm('m-news');renderNews();
-  } catch(e){ showToast('❌ Error',e.message); }
-}
+function doAddHeadline(){const t=$('nh-t').value.trim(),d=$('nh-d').value;if(!t)return;clubData[clubId].headlines.push({id:Date.now(),title:t,date:d});sv("uc_data_v6",clubData);cm('m-news');renderNews()}
 
 function openEditStats(pid){editingStatsPid=pid;const p=getData(clubId).players.find(pl=>pl.id===pid);$('es-g').value=p.goals;$('es-a').value=p.assists;$('es-gp').value=p.gp;openModal('m-stats')}
-async function doSaveStats(){
-  const p=clubData[clubId].players.find(pl=>pl.id===editingStatsPid||pl._id===editingStatsPid);
-  if(!p)return;
-  const update={goals:parseInt($('es-g').value)||0,assists:parseInt($('es-a').value)||0,gp:parseInt($('es-gp').value)||0};
-  try {
-    const updated=await api('PATCH',`/clubs/${clubId}/players/${editingStatsPid}`,update);
-    Object.assign(p,updated,{id:updated._id});
-    cm('m-stats');renderPlayers();
-  } catch(e){ showToast('❌ Error',e.message); }
-}
+function doSaveStats(){const p=clubData[clubId].players.find(pl=>pl.id===editingStatsPid);if(p){p.goals=parseInt($('es-g').value)||0;p.assists=parseInt($('es-a').value)||0;p.gp=parseInt($('es-gp').value)||0}sv("uc_data_v6",clubData);cm('m-stats');renderPlayers()}
 
 
 // ─── PLAYER INFO ────────────────────────────────────────
@@ -1946,48 +1775,39 @@ function onPlayerEditPhoto(e){
   reader.readAsDataURL(file);
 }
 
-async function savePlayerEdit(){
-  const p = clubData[clubId].players.find(pl=>pl.id===viewingPid||pl._id===viewingPid);
+function savePlayerEdit(){
+  const p = clubData[clubId].players.find(pl=>pl.id===viewingPid);
   if(!p) return;
-  const update={
-    name:$('pi-name').value.trim()||p.name,
-    num:parseInt($('pi-num').value)||p.num,
-    pos:$('pi-pos').value||p.pos,
-    age:parseInt($('pi-age').value)||0,
-    nationality:$('pi-nationality').value.trim(),
-    hometown:$('pi-hometown').value.trim(),
-    height:parseInt($('pi-height').value)||0,
-    foot:$('pi-foot').value,
-    shirtname:$('pi-shirtname').value.trim(),
-    bio:$('pi-bio').value.trim(),
-    goals:parseInt($('pi-goals').value)||0,
-    assists:parseInt($('pi-assists').value)||0,
-    gp:parseInt($('pi-gp').value)||0,
-  };
-  try {
-    const updated=await api('PATCH',`/clubs/${clubId}/players/${viewingPid}`,update);
-    Object.assign(p,updated,{id:updated._id});
-    if(piNewPhoto!==undefined && piNewPhoto && piNewPhoto.startsWith('data:')){
-      const blob=await(await fetch(piNewPhoto)).blob();
-      const fd=new FormData();fd.append('photo',blob,'photo.jpg');
-      const res=await api('POST',`/clubs/${clubId}/players/${viewingPid}/photo`,fd,true);
-      p.img=res.img;
-    }
-    showToast('✅ Player Updated',`${p.name} profile saved.`);
-    cm('m-player-info');renderPlayers();
-  } catch(e){ showToast('❌ Error',e.message); }
+  p.name        = $('pi-name').value.trim() || p.name;
+  p.num         = parseInt($('pi-num').value)||p.num;
+  p.pos         = $('pi-pos').value || p.pos;
+  p.age         = parseInt($('pi-age').value)||0;
+  p.nationality = $('pi-nationality').value.trim();
+  p.hometown    = $('pi-hometown').value.trim();
+  p.height      = parseInt($('pi-height').value)||0;
+  p.foot        = $('pi-foot').value;
+  p.shirtname   = $('pi-shirtname').value.trim();
+  p.bio         = $('pi-bio').value.trim();
+  p.goals       = parseInt($('pi-goals').value)||0;
+  p.assists     = parseInt($('pi-assists').value)||0;
+  p.gp          = parseInt($('pi-gp').value)||0;
+  if(piNewPhoto !== undefined) p.img = piNewPhoto;
+  sv("uc_data_v6", clubData);
+  showToast('✅ Player Updated', `${p.name}'s profile has been saved.`);
+  cm('m-player-info');
+  renderPlayers();
 }
 
 function confirmDeletePlayer(){
-  const p=getData(clubId).players.find(pl=>pl.id===viewingPid||pl._id===viewingPid);
-  if(!p)return;
-  showConfirm('🗑 Remove Player',`Remove ${p.name} from the squad?`,'Yes, Remove',async()=>{
-    try {
-      await api('DELETE',`/clubs/${clubId}/players/${viewingPid}`);
-      clubData[clubId].players=clubData[clubId].players.filter(pl=>pl.id!==viewingPid&&pl._id!==viewingPid);
-      cm('m-player-info');renderPlayers();renderTabAct();
-      showToast('🗑 Player Removed',`${p.name} removed.`);
-    } catch(e){ showToast('❌ Error',e.message); }
+  const p = getData(clubId).players.find(pl=>pl.id===viewingPid);
+  if(!p) return;
+  showConfirm('🗑 Remove Player',`Remove ${p.name} from the squad?`,'Yes, Remove',()=>{
+    clubData[clubId].players = clubData[clubId].players.filter(pl=>pl.id!==viewingPid);
+    sv("uc_data_v6", clubData);
+    cm('m-player-info');
+    renderPlayers();
+    renderTabAct();
+    showToast('🗑 Player Removed',`${p.name} has been removed from the squad.`);
   });
 }
 
@@ -2005,22 +1825,19 @@ function deleteRatingsForPlayer(){
   const pid=$('del-player-sel').value;
   if(!pid){showToast('⚠️ No player selected','Please choose a player first.');return;}
   const p=getData(clubId)?.players?.find(pl=>pl.id===pid);
-  showConfirm('🗑 Delete Player Ratings',`Delete all ratings for ${p?.name||'this player'} in this matchday?`,'Yes, Delete',async()=>{
+  showConfirm('🗑 Delete Player Ratings',`Delete all ratings for ${p?.name||'this player'} in this matchday?`,'Yes, Delete',()=>{
   delete ratings[clubId+'_'+mdId+'_'+pid];
   const rk=clubId+'_'+pid;
   if(ratings[rk])Object.keys(ratings[rk]).forEach(k=>{if(k.includes(mdId))delete ratings[rk][k];});
-    try {
-      await api('DELETE',`/clubs/${clubId}/matchdays/${mdId}/ratings/${pid}`);
-      delete ratings[clubId+'_'+mdId+'_'+pid];
-      cm('m-del-ratings');
-      showToast('🗑 Player Ratings Deleted',`Ratings for ${p?.name||'player'} removed.`);
-      renderMd();
-    } catch(e){ showToast('❌ Error',e.message); }
+    sv("uc_ratings_v6",ratings);
+    cm('m-del-ratings');
+    showToast('🗑 Player Ratings Deleted',`Ratings for ${p?.name||'player'} removed.`);
+    renderMd();
   });
 }
 function deleteRatingsForMd(){
-  const md2=getData(clubId)?.matchdays?.find(m=>m._id===mdId||m.id===mdId);
-  showConfirm('🗑 Delete Matchday Ratings',`Delete all fan ratings for this match vs ${md2?.opponent||''}?`,'Yes, Delete',async()=>{
+  const md2=getData(clubId)?.matchdays?.find(m=>m.id===mdId);
+  showConfirm('🗑 Delete Matchday Ratings',`Delete all fan ratings for this match vs ${md2?.opponent||''}?`,'Yes, Delete',()=>{
   const data = getData(clubId);
   const players = data?.players||[];
   players.forEach(p=>{
@@ -2031,26 +1848,20 @@ function deleteRatingsForMd(){
       Object.keys(ratings[key]).forEach(k=>{ if(k.includes(mdId)) delete ratings[key][k]; });
     }
   });
-    try {
-      await api('DELETE',`/clubs/${clubId}/matchdays/${mdId}/ratings`);
-      Object.keys(ratings).filter(k=>k.includes(mdId)).forEach(k=>delete ratings[k]);
-      cm('m-del-ratings');
-      showToast('🗑 Ratings Deleted','All matchday ratings removed.');
-      renderMd();
-    } catch(e){ showToast('❌ Error',e.message); }
+    sv("uc_ratings_v6", ratings);
+    cm('m-del-ratings');
+    showToast('🗑 Ratings Deleted', 'All ratings for this matchday have been removed.');
+    renderMd();
   });
 }
 function deleteAllRatingsForClub(){
   const club2=getClub(clubId);
-  showConfirm('🗑 Delete ALL Club Ratings',`Delete every fan rating for ${club2?.short||'this club'} across all matchdays?`,'Yes, Delete All',async()=>{
+  showConfirm('🗑 Delete ALL Club Ratings',`Delete every fan rating for ${club2?.short||'this club'} across all matchdays?`,'Yes, Delete All',()=>{
   Object.keys(ratings).forEach(k=>{ if(k.startsWith(clubId+'_')) delete ratings[k]; });
-    try {
-      await api('DELETE',`/clubs/${clubId}/ratings/all`);
-      Object.keys(ratings).filter(k=>k.startsWith(clubId)).forEach(k=>delete ratings[k]);
-      cm('m-del-ratings');
-      showToast('🗑 All Ratings Deleted','All club ratings cleared.');
-      renderMd();
-    } catch(e){ showToast('❌ Error',e.message); }
+    sv("uc_ratings_v6", ratings);
+    cm('m-del-ratings');
+    showToast('🗑 All Ratings Deleted', 'All club ratings have been cleared.');
+    renderMd();
   });
 }
 
@@ -2073,26 +1884,9 @@ function execConfirm(){
 // =============================================================
 // INIT
 // =============================================================
-// Check if we have a stored admin token and validate it
-if(adminToken){
-  // Try to verify token is still valid by checking expiry
-  try {
-    const payload=JSON.parse(atob(adminToken.split('.')[1]));
-    if(payload.exp * 1000 < Date.now()){ adminToken=null; localStorage.removeItem('uc_admin_token'); }
-    else { isAdmin=true; updAB(); }
-  } catch(e){ adminToken=null; localStorage.removeItem('uc_admin_token'); }
-}
-
-// Also update getData and getClub to use _id from MongoDB
-const _origGetClub = getClub;
-
-async function init(){
-  await loadClubs();
-  checkScheduledNotifs();
-  renderHome();
-  reqNotifPerm();
-}
-init();
+checkScheduledNotifs();
+renderHome();
+reqNotifPerm();
 </script>
 
 <!-- Player Info / Edit Modal -->

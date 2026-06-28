@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Urban Circle Sports Platform</title>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="style.css">
+
+</head>
+<body>
+<div id="toast-wrap"></div>
+
+<!-- HEADER -->
+<header id="hdr">
+  <div style="display:flex;align-items:center;gap:2px;min-width:0">
+    <button id="back-btn" onclick="goBack()" style="display:none">←</button>
+    <div class="brand" onclick="goHome()">
+      <div id="brand-logo-wrap"></div>
+      <div><div class="brand-lbl">URBAN CIRCLE</div><div class="brand-sub">SPORTS PLATFORM</div></div>
+    </div>
+    <span style="color:#ccc;font-size:17px;margin:0 4px;display:none" id="hdr-sep">›</span>
+    <span id="hdr-club" style="display:none"></span>
+  </div>
+  <div class="hdr-right">
+    <div id="live-pill">● LIVE</div>
+    <button id="manage-admins-btn" onclick="openCreateAdmin()" style="display:none;padding:6px 14px;border-radius:8px;border:1.5px solid #4dc8c8;background:#fff;color:#1d2d5a;font-size:11px;font-weight:700;cursor:pointer;letter-spacing:.3px">Manage Admins</button>
+    <button id="admin-btn" onclick="handleAdminClick()" title="Admin">
+    <svg id="admin-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+  </button>
+  </div>
+</header>
+
+<!-- HOME VIEW -->
+<div id="view-home" class="view active">
+  <!-- HERO BANNER -->
+  <div id="hero">
+    <div id="hero-logos"></div>
+    <div style="flex:1;position:relative;z-index:1">
+      <h1><span>Urban Circle</span> Sports</h1>
+      <p>FAN ENGAGEMENT · RATE · COMMENT </p>
+    </div>
+  </div>
+
+  <!-- QUICK ACCESS TILES -->
+  <div class="home-tiles-wrap">
+    <div class="home-tiles">
+      <!-- LIVE NOW (shown only when match is live) -->
+      <div class="home-tile" id="home-tile-live" style="display:none" onclick="document.getElementById('live-section').scrollIntoView({behavior:'smooth'})">
+        <div class="home-tile-icon" style="
+          background:linear-gradient(145deg,#ff4141,#ff4b2b);
+          box-shadow:0 8px 24px rgba(255, 65, 65, 0.55),0 2px 8px rgba(0,0,0,.2);
+          border:1.5px solid rgba(255,150,130,.35)">
+          <span class="tile-live-dot"></span>
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" fill="rgba(255,255,255,.15)"/>
+            <circle cx="12" cy="12" r="5" fill="#fff"/>
+            <circle cx="12" cy="12" r="2" fill="#ff416c"/>
+          </svg>
+        </div>
+        <div class="home-tile-label">Live Now</div>
+      </div>
+
+      <!-- GALLERY -->
+      <div class="home-tile" onclick="openGalleryView()">
+        <div class="home-tile-icon" style="
+          background:linear-gradient;
+          box-shadow:0 8px 24px rgba(150,60,200,.55),0 2px 8px rgba(0,0,0,.2);
+          border:1.5px solid rgba(200,140,255,.3)">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <rect x="2" y="4" width="20" height="16" rx="3" fill="rgba(255,255,255,.2)"/>
+            <rect x="2" y="4" width="20" height="16" rx="3" stroke="rgba(255,255,255,.6)" stroke-width="1.2"/>
+            <circle cx="8.5" cy="10.5" r="2" fill="#fff"/>
+            <path d="M2 17l5-4 4 3.5 3-2.5 8 5" stroke="#fff" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" fill="rgba(255,255,255,.25)" clip-path="inset(0 0 0 0 round 3px)"/>
+            <circle cx="8.5" cy="10.5" r="2" fill="#fff"/>
+          </svg>
+        </div>
+        <div class="home-tile-label">Gallery</div>
+      </div>
+
+      <!-- LOGS -->
+      <div class="home-tile" onclick="openLogsHub()">
+        <div class="home-tile-icon" style="
+          background:linear-gradient;
+          box-shadow:0 8px 24px rgba(5,117,230,.55),0 2px 8px rgba(0,0,0,.2);
+          border:1.5px solid rgba(100,180,255,.3)">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="3" width="18" height="18" rx="3" fill="rgba(255,255,255,.15)" stroke="rgba(255,255,255,.5)" stroke-width="1.2"/>
+            <rect x="7" y="14" width="2.5" height="4" rx="1" fill="#fff"/>
+            <rect x="10.8" y="11" width="2.5" height="7" rx="1" fill="rgba(255,255,255,.8)"/>
+            <rect x="14.5" y="8" width="2.5" height="10" rx="1" fill="#fff"/>
+            <path d="M7 12l4-3 4-3" stroke="rgba(255,255,255,.6)" stroke-width="1.2" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="home-tile-label">Logs</div>
+      </div>
+
+      <!-- NEWS -->
+      <div class="home-tile" onclick="openNewsHub()">
+        <div class="home-tile-icon" style="
+          background:linear-gradient;
+          box-shadow:0 8px 24px rgba(30, 247, 84, 0.6),0 2px 8px rgba(0,0,0,.2);
+          border:1.5px solid rgba(255,230,120,.4)">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <rect x="3" y="3" width="18" height="18" rx="3" fill="rgba(0,0,0,.15)" stroke="rgba(255,255,255,.5)" stroke-width="1.2"/>
+            <rect x="6" y="7" width="12" height="1.8" rx=".9" fill="#fff"/>
+            <rect x="6" y="11" width="9" height="1.8" rx=".9" fill="rgba(255,255,255,.75)"/>
+            <rect x="6" y="15" width="7" height="1.8" rx=".9" fill="rgba(255,255,255,.5)"/>
+            <rect x="14" y="13.5" width="4" height="4" rx=".8" fill="rgba(255,255,255,.3)" stroke="rgba(255,255,255,.6)" stroke-width=".8"/>
+          </svg>
+        </div>
+        <div class="home-tile-label">News</div>
+      </div>
+
+      <!-- LEADERBOARD -->
+      <div class="home-tile" onclick="openLeaderboardHub()">
+        <div class="home-tile-icon" style="
+          background:linear-gradient;
+          box-shadow:0 8px 24px rgba(17,153,142,.55),0 2px 8px rgba(0,0,0,.2);
+          border:1.5px solid rgba(100,255,200,.3)">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
+            <rect x="9" y="13" width="6" height="8" rx="1" fill="rgba(255,255,255,.9)"/>
+            <rect x="3" y="16" width="5" height="5" rx="1" fill="rgba(255,255,255,.65)"/>
+            <rect x="16" y="15" width="5" height="6" rx="1" fill="rgba(255,255,255,.75)"/>
+            <path d="M12 3l1.8 3.6L18 7.3l-3 2.9.7 4.1L12 12l-3.7 2.3.7-4.1-3-2.9 4.2-.7z" fill="#fff" stroke="none"/>
+          </svg>
+        </div>
+        <div class="home-tile-label">Leaderboard</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap">
+    <!-- GALLERY PREVIEW STRIP -->
+    <div id="home-gallery-strip" style="display:none;margin-bottom:24px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-family:'Oswald',sans-serif;font-size:18px;color:#1a1a2e;letter-spacing:.5px">Latest Photos</div>
+        <button onclick="openGalleryView()" style="font-size:12px;font-weight:700;color:#1d2d5a;background:none;border:none;cursor:pointer;letter-spacing:.5px">View All →</button>
+      </div>
+      <div id="home-gallery-preview" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;border-radius:14px;overflow:hidden"></div>
+    </div>
+    <div id="live-section" class="live-section" style="display:none">
+      <div class="sec-lbl" style="color:#e74c3c;margin-bottom:10px">● Live Now</div>
+      <div id="live-matches-list"></div>
+    </div>
+    <div id="clubs-grid"></div>
+  </div>
+</div>
+
+<!-- CLUB VIEW -->
+<div id="view-club" class="view">
+  <div class="wrap">
+    <div id="club-banner"></div>
+    <div class="tabs">
+      <button class="tab-btn" onclick="switchTab('players')">Players</button>
+      <button class="tab-btn" onclick="switchTab('matchdays')">Matchdays</button>
+      <button class="tab-btn" onclick="switchTab('news')">News</button>
+    </div>
+    <div id="tab-act" style="margin-bottom:10px"></div>
+    <div id="tab-players" class="tab-panel active"><div id="players-grid" class="players-grid"></div></div>
+    <div id="tab-matchdays" class="tab-panel"><div id="matchdays-grid" class="matchdays-grid"></div></div>
+    <div id="tab-news" class="tab-panel"><div id="news-list"></div></div>
+  </div>
+</div>
+
+<!-- MATCHDAY VIEW -->
+<div id="view-matchday" class="view">
+  <div class="wrap">
+    <div id="md-banner"></div>
+    <div id="live-timer-bar" style="background:#fff;border-radius:12px;padding:14px 18px;margin:12px 0;border:1.5px solid var(--border);display:none">
+      <div class="timer-main" style="display:flex;align-items:center;gap:14px">
+        <div class="timer-display" style="font-family:'Oswald',sans-serif;font-size:42px;font-weight:700;color:var(--c-accent);min-width:90px">0:00</div>
+        <div class="timer-info"><div class="timer-period" style="font-weight:700;font-size:14px;color:#1a1a2e">Half 1 of 2</div><div class="timer-quarter" style="font-size:12px;color:#888">2x45 min · Football</div></div>
+      </div>
+      <div class="timer-progress" style="height:4px;background:#f0f0f0;border-radius:2px;margin-top:8px;overflow:hidden"><div class="timer-progress-fill" style="height:100%;width:0%;background:var(--c-accent);border-radius:2px;transition:width .5s"></div></div>
+    </div>
+    <div id="live-scorers-strip" style="display:none;background:#fff;border:1.5px solid rgba(231,76,60,.25);border-radius:10px;padding:10px 16px;margin-bottom:10px;box-shadow:0 2px 8px rgba(231,76,60,.08)"></div>
+    <div id="rating-status-bar" style="margin-bottom:12px"></div>
+    <div id="md-hint" style="background:linear-gradient(135deg,#fff9e6,#fff3cc);border:1.5px solid #ffe066;border-radius:10px;padding:11px 15px;margin-bottom:14px;font-size:13px;color:#7a6000;display:none">
+      <svg style="width:14px;height:14px;vertical-align:-2px;color:#e8a020;margin-right:4px" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+      <strong>Rate each player</strong> — tap stars, drop a comment. Ratings carry to profiles.
+    </div>
+    <div id="scorers-panel"></div>
+    <div id="lineup-panel"></div>
+    <div id="md-players"></div>
+  </div>
+</div>
+
+<!-- LOGS VIEW (Activity) -->
+<div id="view-logs" class="view">
+  <div class="wrap" style="max-width:900px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+      <h2 style="font-family:'Oswald',sans-serif;font-size:22px;color:#1a1a2e">Activity Logs</h2>
+      <button onclick="goHome()" style="padding:7px 14px;border-radius:8px;border:1.5px solid #ddd;background:#fff;font-size:12px;font-weight:700;cursor:pointer">← Home</button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">
+      <input id="log-search" class="finp" placeholder="Search logs..." style="flex:1;min-width:180px" oninput="renderLogs()"/>
+      <select id="log-filter-club" class="fsel" onchange="renderLogs()">
+        <option value="">All Clubs</option>
+        <option value="warriors">Warriors FC</option>
+        <option value="gladiators">Gladiators</option>
+        <option value="titans">UC Titans NC</option>
+      </select>
+      <select id="log-filter-cat" class="fsel" onchange="renderLogs()">
+        <option value="">All Categories</option>
+        <option value="admin">Admin</option>
+        <option value="player">Player</option>
+        <option value="matchday">Matchday</option>
+        <option value="rating">Rating</option>
+        <option value="comment">Comment</option>
+        <option value="gallery">Gallery</option>
+      </select>
+    </div>
+    <div style="overflow-x:auto;background:#fff;border-radius:12px;border:1.5px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,.04)">
+      <table class="logs-table">
+        <thead><tr style="background:#f8f9fc">
+          <th style="text-align:left;padding:10px 12px;font-size:11px;color:#888;font-weight:700;letter-spacing:.5px">Time</th>
+          <th style="padding:10px 12px;font-size:11px;color:#888;font-weight:700;letter-spacing:.5px">Action</th>
+          <th style="padding:10px 12px;font-size:11px;color:#888;font-weight:700;letter-spacing:.5px">Club</th>
+          <th style="padding:10px 12px;font-size:11px;color:#888;font-weight:700;letter-spacing:.5px">Details</th>
+          <th style="padding:10px 12px;font-size:11px;color:#888;font-weight:700;letter-spacing:.5px">Fan</th>
+        </tr></thead>
+        <tbody id="logs-tbody"></tbody>
+      </table>
+    </div>
+    <div id="logs-pagination"></div>
+    <div style="margin-top:14px;text-align:right">
+      <button onclick="clearLogs()" style="padding:7px 14px;border-radius:7px;border:1.5px solid #e74c3c;color:#e74c3c;background:#fff;font-size:12px;font-weight:700;cursor:pointer">Clear All Logs</button>
+    </div>
+  </div>
+</div>
+
+<!-- GALLERY VIEW -->
+<div id="view-gallery" class="view">
+  <div class="hub-hero">
+    <div class="hub-hero-inner">
+      <div class="hub-hero-text">
+        <div class="hub-hero-eyebrow">Urban Circle Sports</div>
+        <div class="hub-hero-title">Gallery</div>
+      </div>
+      <button class="hub-back-btn" onclick="goHome()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>Home</button>
+    </div>
+    <div class="hub-tabs" id="gal-filter-tabs">
+      <button class="hub-tab active" data-club="all" onclick="setGalleryFilter('all')">All Photos</button>
+      
+    </div>
+  </div>
+  <div class="gal-count-bar" style="background:#f5f6fa;border:none;padding:12px 18px">
+    <span id="gal-count" class="gal-count-text">0 photos</span>
+    <div id="gal-add-btn-wrap" style="display:none">
+      <button class="add-photo-btn" onclick="openAddPhoto()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 5v14M5 12h14"/></svg>Add Photo</button>
+    </div>
+  </div>
+  <div style="padding:0 0 40px" id="gallery-grid" class="gal-grid"></div>
+</div>
+
+<!-- LOGS HUB VIEW -->
+<div id="view-logshub" class="view">
+  <div class="hub-hero">
+    <div class="hub-hero-inner">
+      <div class="hub-hero-text">
+        <div class="hub-hero-eyebrow">Standings · Fixtures · Stats</div>
+        <div class="hub-hero-title">Logs &amp; Stats</div>
+      </div>
+      <button class="hub-back-btn" onclick="goHome()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>Home</button>
+    </div>
+    <div class="hub-tabs">
+      <button class="hub-tab active" id="lht-standings" onclick="switchLogsTab('standings')">Standings</button>
+      <button class="hub-tab" id="lht-fixtures" onclick="switchLogsTab('fixtures')">Fixtures</button>
+      <button class="hub-tab" id="lht-stats" onclick="switchLogsTab('stats')">Top Stats</button>
+      <button class="hub-tab" id="lht-live" onclick="switchLogsTab('live')">Live</button>
+    </div>
+  </div>
+  <div class="hub-content">
+    <div id="lh-standings" class="lh-panel"></div>
+    <div id="lh-fixtures" class="lh-panel" style="display:none"></div>
+    <div id="lh-stats" class="lh-panel" style="display:none"></div>
+    <div id="lh-live" class="lh-panel" style="display:none"></div>
+  </div>
+</div>
+
+<!-- NEWS HUB VIEW -->
+<div id="view-newshub" class="view">
+  <div class="hub-hero">
+    <div class="hub-hero-inner">
+      <div class="hub-hero-text">
+        <div class="hub-hero-eyebrow">All Clubs · Latest Headlines</div>
+        <div class="hub-hero-title">News &amp; Updates</div>
+      </div>
+      <button class="hub-back-btn" onclick="goHome()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>Home</button>
+    </div>
+  </div>
+  <div class="hub-content" id="newshub-content"></div>
+</div>
+
+<!-- LEADERBOARD HUB VIEW -->
+<div id="view-leaderboard" class="view">
+  <div class="hub-hero">
+    <div class="hub-hero-inner">
+      <div class="hub-hero-text">
+        <div class="hub-hero-eyebrow">Top Rated Players</div>
+        <div class="hub-hero-title">Leaderboard</div>
+      </div>
+      <button class="hub-back-btn" onclick="goHome()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 12H5M12 5l-7 7 7 7"/></svg>Home</button>
+    </div>
+    <div class="lb-filter-bar">
+      <button class="lb-filter-pill active" id="lbt-all" onclick="switchLbTab('all')">All Clubs</button>
+      <button class="lb-filter-pill" id="lbt-warriors" onclick="switchLbTab('warriors')">Warriors FC</button>
+      <button class="lb-filter-pill" id="lbt-gladiators" onclick="switchLbTab('gladiators')">Gladiators</button>
+      <button class="lb-filter-pill" id="lbt-titans" onclick="switchLbTab('titans')">Titans NC</button>
+    </div>
+  </div>
+  <div class="lb-content" id="leaderboard-content"></div>
+</div>
+
+<!-- Manage Match Modal -->
+<div id="m-manage-match" class="modal"><div class="mbox wide" style="max-width:480px">
+  <div class="mhead"><h3>Manage Match</h3><button class="mclose" onclick="cm('m-manage-match')">&times;</button></div>
+  <div class="mm-section"><div class="mm-section-title">Live Score</div>
+    <div class="mm-score-row">
+      <div class="mm-score-team"><div class="mm-score-lbl" id="mm-home-lbl">Home</div><div class="mm-score-ctrl"><button onclick="mmAdjustScore('home',-1)" class="mm-score-btn">&minus;</button><div class="mm-score-val" id="mm-home-val">0</div><button onclick="mmAdjustScore('home',1)" class="mm-score-btn">+</button></div></div>
+      <div class="mm-score-sep">&ndash;</div>
+      <div class="mm-score-team"><div class="mm-score-lbl" id="mm-away-lbl">Away</div><div class="mm-score-ctrl"><button onclick="mmAdjustScore('away',-1)" class="mm-score-btn">&minus;</button><div class="mm-score-val" id="mm-away-val">0</div><button onclick="mmAdjustScore('away',1)" class="mm-score-btn">+</button></div></div>
+    </div>
+  </div>
+  <div class="mm-section"><div class="mm-section-title">Match Clock</div><div id="mm-clock-status" class="mm-clock-box"></div><div id="mm-clock-controls" class="mm-clock-controls"></div></div>
+  <div class="mm-section"><div class="mm-section-title">Match Status</div>
+    <div class="mm-status-row">
+      <button class="mm-status-btn" data-status="upcoming" onclick="mmSetStatus('upcoming')">Upcoming</button>
+      <button class="mm-status-btn" data-status="live" onclick="mmSetStatus('live')">Live</button>
+      <button class="mm-status-btn" data-status="finished" onclick="mmSetStatus('finished')">Finished</button>
+    </div>
+  </div>
+  <div class="mm-section"><button onclick="cm('m-manage-match');openEditMd(mdId)" class="mm-link-btn">Full Match Details &amp; Rating Window &rarr;</button></div>
+  <div class="mm-section mm-danger" id="mm-danger-zone" style="display:none">
+    <div class="mm-section-title" style="color:#e74c3c">Danger Zone &middot; Platform Owner Only</div>
+    <button onclick="cm('m-manage-match');openDelRatings()" class="mm-danger-btn">Delete Ratings for This Match</button>
+    <button onclick="cm('m-manage-match');deleteCurrentMatchday()" class="mm-danger-btn">Delete This Matchday Permanently</button>
+  </div>
+  <div class="mfoot"><button class="mbtn c" onclick="cm('m-manage-match')">Close</button></div>
+</div></div>
+
+<!-- Standings Modal -->
+<div id="m-standings" class="modal"><div class="mbox" style="max-width:640px">
+  <div class="mhead"><h3 id="standings-title">Standings</h3><button class="mclose" onclick="cm('m-standings')">x</button></div>
+  <input type="hidden" id="standings-club-id"/>
+  <div id="standings-table"></div>
+  <div id="standings-form"></div>
+  <div class="mfoot"><button class="mbtn c" onclick="cm('m-standings')">Close</button></div>
+</div></div>
+
+<!-- Delete Ratings Modal -->
+<div id="m-del-ratings" class="modal"><div class="mbox">
+  <div class="mhead"><h3>Delete Ratings</h3><button class="mclose" onclick="cm('m-del-ratings')">&times;</button></div>
+  <p style="font-size:13px;color:#555;margin-bottom:14px">Choose what to delete for <strong id="del-md-name">this matchday</strong>.</p>
+  <div style="display:flex;flex-direction:column;gap:8px">
+    <button class="mbtn" style="background:#fff3cd;border:1.5px solid #ffc107;color:#856404;border-radius:8px;padding:10px" onclick="deleteRatingsForMd()">Delete ALL ratings for this matchday</button>
+    <div style="display:flex;gap:8px;align-items:center">
+      <select id="del-player-sel" class="fsel" style="flex:1"></select>
+      <button class="mbtn" style="background:#ffe0e0;border:1.5px solid #e74c3c;color:#c0392b;border-radius:8px;padding:10px;flex:none" onclick="deleteRatingsForPlayer()">Delete</button>
+    </div>
+    <button class="mbtn" style="background:#fdecea;border:1.5px solid #e74c3c;color:#c0392b;border-radius:8px;padding:10px" onclick="deleteAllRatingsForClub()">Delete ALL ratings for this club</button>
+  </div>
+  <div class="mfoot"><button class="mbtn c" onclick="cm('m-del-ratings')">Cancel</button></div>
+</div></div>
+
+<!-- Universal Confirm Modal -->
+<div id="m-confirm" class="modal"><div class="mbox">
+  <div class="mhead"><h3 id="confirm-title">Confirm</h3><button class="mclose" onclick="cm('m-confirm')">&times;</button></div>
+  <p id="confirm-msg" style="font-size:14px;color:#555;margin-bottom:18px"></p>
+  <div class="mfoot">
+    <button id="confirm-ok-btn" class="mbtn" style="background:#e74c3c;border:none;color:#fff;border-radius:8px" onclick="execConfirm()">Confirm</button>
+    <button class="mbtn c" onclick="cm('m-confirm')">Cancel</button>
+  </div>
+</div></div>
+
+<!-- Player Info Modal -->
+<div id="m-player-info" class="modal"><div class="mbox wide" style="max-width:540px">
+  <div class="mhead"><h3 id="pi-modal-title">Player Profile</h3><button class="mclose" onclick="cm('m-player-info')">&times;</button></div>
+  <div id="pi-view">
+    <div id="pi-header-block" style="border-radius:12px;padding:18px 20px;display:flex;align-items:center;gap:16px;margin-bottom:14px"></div>
+    <div id="pi-stats-block" style="margin-bottom:14px"></div>
+    <div id="pi-fields-block"></div>
+    <div id="pi-admin-btns" style="display:none;gap:8px;margin-top:14px;flex-wrap:wrap">
+      <button class="mbtn t" onclick="switchToEditPlayer()">Edit Player</button>
+      <button class="mbtn" style="background:#e74c3c;border:none;color:#fff;border-radius:8px" onclick="confirmDeletePlayer()">Remove Player</button>
+    </div>
+  </div>
+  <div id="pi-edit" style="display:none">
+    <div id="pi-edit-avatar" style="margin-bottom:14px;display:flex;align-items:center;gap:12px">
+    </div>
+    <label class="flbl">Change Photo</label>
+    <input type="file" accept="image/*" onchange="onPlayerEditPhoto(event)" class="finp" style="margin-bottom:10px"/>
+    <div class="edit-grid-2">
+      <div><label class="flbl">Full Name</label><input id="pi-name" class="finp"/></div>
+      <div><label class="flbl">Jersey #</label><input id="pi-num" type="number" class="finp"/></div>
+    </div>
+    <label class="flbl">Position</label>
+    <select id="pi-pos" class="fsel"></select>
+    <div id="pi-sport-fields"></div>
+    <div class="edit-grid-2">
+      <div><label class="flbl">Age</label><input id="pi-age" type="number" class="finp"/></div>
+      <div><label class="flbl">Height (cm)</label><input id="pi-height" type="number" class="finp"/></div>
+    </div>
+    <div class="edit-grid-2">
+      <div><label class="flbl">Nationality</label><input id="pi-nationality" class="finp"/></div>
+      <div><label class="flbl">Hometown</label><input id="pi-hometown" class="finp"/></div>
+    </div>
+    <label class="flbl">Bio</label>
+    <textarea id="pi-bio" class="finp" rows="3" style="resize:vertical"></textarea>
+    <div id="pi-stats-edit" style="margin-top:10px"></div>
+    <div class="mfoot">
+      <button class="mbtn t" onclick="savePlayerEdit()">Save</button>
+      <button class="mbtn c" onclick="switchToViewPlayer()">Cancel</button>
+    </div>
+  </div>
+</div></div>
+
+<!-- Player Photo Modal -->
+<div id="m-pp" class="modal"><div class="mbox">
+  <div class="mhead"><h3>Player Photo</h3><button class="mclose" onclick="cm('m-pp')">&times;</button></div>
+  <div id="pp-pre-wrap" style="text-align:center;margin-bottom:14px"></div>
+  <input type="file" id="pp-file" accept="image/*" onchange="onPpUpload(event)" style="display:none"/>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <label for="pp-file" class="mbtn t" style="cursor:pointer;text-align:center">Choose Photo</label>
+    <button id="rm-pp-btn" class="mbtn" style="background:#e74c3c;border:none;color:#fff;border-radius:8px;display:none" onclick="rmPlayerPic()">Remove Photo</button>
+  </div>
+  <div class="mfoot"><button class="mbtn t" onclick="savePp()">Save</button><button class="mbtn c" onclick="cm('m-pp')">Cancel</button></div>
+</div></div>
+
+<!-- Edit Club Modal -->
+<div id="m-club" class="modal"><div class="mbox wide">
+  <div class="mhead"><h3>Edit Club</h3><button class="mclose" onclick="cm('m-club')">&times;</button></div>
+  <label class="flbl">Club Name</label><input id="ec-name" class="finp"/>
+  <label class="flbl">Short Name</label><input id="ec-short" class="finp"/>
+  <label class="flbl">Tagline</label><input id="ec-tag" class="finp"/>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Primary Color</label><div style="display:flex;gap:6px"><input id="ec-p-c" type="color" style="width:40px;height:36px;border-radius:6px;border:1.5px solid var(--border);cursor:pointer" oninput="syncC('p')"/><input id="ec-p-h" class="finp" placeholder="#1d2d5a" oninput="syncCH('p')" style="flex:1"/></div></div>
+    <div><label class="flbl">Accent Color</label><div style="display:flex;gap:6px"><input id="ec-a-c" type="color" style="width:40px;height:36px;border-radius:6px;border:1.5px solid var(--border);cursor:pointer" oninput="syncC('a')"/><input id="ec-a-h" class="finp" placeholder="#4dc8c8" oninput="syncCH('a')" style="flex:1"/></div></div>
+  </div>
+  <div><label class="flbl">Highlight Color</label><div style="display:flex;gap:6px"><input id="ec-h-c" type="color" style="width:40px;height:36px;border-radius:6px;border:1.5px solid var(--border);cursor:pointer" oninput="syncC('h')"/><input id="ec-h-h" class="finp" placeholder="#e8457a" oninput="syncCH('h')" style="flex:1"/></div></div>
+  <div id="ec-prev" style="border-radius:10px;padding:14px;margin:12px 0;border-bottom:4px solid">
+    <div id="ec-pname" style="font-family:'Oswald',sans-serif;font-size:18px;font-weight:700;color:#fff"></div>
+    <div id="ec-ptag" style="font-size:12px;margin-top:4px"></div>
+  </div>
+  <label class="flbl">Club Logo</label>
+  <div id="club-logo-pre" style="margin-bottom:10px"></div>
+  <input type="file" accept="image/*" onchange="onLogoUpload(event)" class="finp"/>
+  <button id="rm-logo-btn" onclick="rmLogo()" style="display:none;margin-top:6px;padding:6px 14px;border-radius:7px;border:1.5px solid #e74c3c;color:#e74c3c;background:#fff;cursor:pointer;font-size:12px">Remove Logo</button>
+  <div class="mfoot"><button class="mbtn t" onclick="saveClub()">Save Club</button><button class="mbtn c" onclick="cm('m-club')">Cancel</button></div>
+</div></div>
+
+<!-- Add Player Modal -->
+<div id="m-add-player" class="modal"><div class="mbox">
+  <div class="mhead"><h3>Add Player</h3><button class="mclose" onclick="cm('m-add-player')">&times;</button></div>
+  <label class="flbl">Name</label><input id="np-name" class="finp" placeholder="Full name"/>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Jersey #</label><input id="np-num" type="number" class="finp" min="1" max="99"/></div>
+    <div><label class="flbl">Position</label><select id="np-pos" class="fsel"></select></div>
+  </div>
+  <div class="mfoot"><button class="mbtn t" onclick="doAddPlayer()">Add Player</button><button class="mbtn c" onclick="cm('m-add-player')">Cancel</button></div>
+</div></div>
+
+<!-- Edit Stats Modal -->
+<div id="m-stats" class="modal"><div class="mbox">
+  <div class="mhead"><h3>Edit Stats</h3><button class="mclose" onclick="cm('m-stats')">&times;</button></div>
+  <div id="stats-fields"></div>
+  <div class="mfoot"><button class="mbtn t" onclick="doSaveStats()">Save</button><button class="mbtn c" onclick="cm('m-stats')">Cancel</button></div>
+</div></div>
+
+<!-- Add Matchday Modal -->
+<div id="m-add-md" class="modal"><div class="mbox wide">
+  <div class="mhead"><h3>Add Matchday</h3><button class="mclose" onclick="cm('m-add-md')">&times;</button></div>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Label</label><input id="nm-lbl" class="finp" placeholder="e.g. Matchday 1"/></div>
+    <div><label class="flbl">Opponent</label><input id="nm-opp" class="finp" placeholder="Opponent team"/></div>
+  </div>
+  <label class="flbl">Venue</label><input id="nm-venue" class="finp" placeholder="Stadium / Field"/>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Date</label><input id="nm-date" type="date" class="finp"/></div>
+    <div><label class="flbl">Kick-off Time</label><input id="nm-time" type="time" class="finp"/></div>
+  </div>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Duration</label>
+      <select id="nm-duration" class="fsel">
+        <option value="90">90 minutes (Football - 2x45)</option>
+        <option value="80">80 minutes (Football - 2x40)</option>
+        <option value="70">70 minutes (Football - 2x35)</option>
+        <option value="60">60 minutes (Football - 2x30)</option>
+        <option value="60nb">60 minutes (Netball - 4x15)</option>
+        <option value="48">48 minutes (Netball - 4x12)</option>
+        <option value="40nb">40 minutes (Netball - 4x10)</option>
+      </select>
+    </div>
+    <div><label class="flbl">Result (optional)</label><input id="nm-res" class="finp" placeholder="e.g. W 2-0"/></div>
+  </div>
+  <div class="mfoot"><button class="mbtn t" onclick="doAddMd()">Add Matchday</button><button class="mbtn c" onclick="cm('m-add-md')">Cancel</button></div>
+</div></div>
+
+<!-- Edit Matchday Modal -->
+<div id="m-edit-md" class="modal"><div class="mbox wide">
+  <div class="mhead"><h3>Edit Matchday</h3><button class="mclose" onclick="cm('m-edit-md')">&times;</button></div>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Label</label><input id="er-lbl" class="finp"/></div>
+    <div><label class="flbl">Opponent</label><input id="er-opp" class="finp"/></div>
+  </div>
+  <label class="flbl">Venue</label><input id="er-venue" class="finp"/>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Date</label><input id="er-date" type="date" class="finp"/></div>
+    <div><label class="flbl">Kick-off</label><input id="er-time" type="time" class="finp"/></div>
+  </div>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Status</label>
+      <select id="er-status" class="fsel">
+        <option value="upcoming">Upcoming</option>
+        <option value="live">Live</option>
+        <option value="finished">Finished</option>
+      </select>
+    </div>
+    <div><label class="flbl">Duration</label>
+      <select id="er-duration" class="fsel" onchange="toggleRatingOverride()">
+        <option value="90">90 min (2x45)</option>
+        <option value="80">80 min (2x40)</option>
+        <option value="70">70 min (2x35)</option>
+        <option value="60">60 min (2x30)</option>
+        <option value="60nb">60 min Netball (4x15)</option>
+        <option value="48">48 min Netball (4x12)</option>
+        <option value="40nb">40 min Netball (4x10)</option>
+      </select>
+    </div>
+  </div>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Home Goals</label><input id="er-home" type="number" min="0" class="finp"/></div>
+    <div><label class="flbl">Away Goals</label><input id="er-away" type="number" min="0" class="finp"/></div>
+  </div>
+  <label class="flbl">Result Text</label><input id="er-v" class="finp" placeholder="e.g. W 2-1"/>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Rating Window (hrs)</label><input id="er-window" type="number" min="1" class="finp"/></div>
+    <div><label class="flbl">Rating Opens (override)</label>
+      <div class="edit-grid-2">
+        <input id="er-rating-date" type="date" class="finp"/>
+        <input id="er-rating-time" type="time" class="finp"/>
+      </div>
+    </div>
+  </div>
+  <div id="netball-quarters-edit" style="display:none"></div>
+  <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;font-weight:600;cursor:pointer">
+    <input id="er-force-close" type="checkbox"/> Force close ratings now
+  </label>
+  <div class="mfoot"><button class="mbtn t" onclick="doSaveMdEdit()">Save</button><button class="mbtn c" onclick="cm('m-edit-md')">Cancel</button></div>
+</div></div>
+
+<!-- Add News Modal -->
+<div id="m-news" class="modal"><div class="mbox">
+  <div class="mhead"><h3>Add Headline</h3><button class="mclose" onclick="cm('m-news')">&times;</button></div>
+  <label class="flbl">Headline</label><input id="nh-t" class="finp" placeholder="Enter headline"/>
+  <label class="flbl">Date</label><input id="nh-d" type="date" class="finp"/>
+  <div class="mfoot"><button class="mbtn t" onclick="doAddHeadline()">Add</button><button class="mbtn c" onclick="cm('m-news')">Cancel</button></div>
+</div></div>
+
+<!-- UC Logo Modal -->
+<div id="m-uc-logo" class="modal"><div class="mbox">
+  <div class="mhead"><h3>UC Main Logo</h3><button class="mclose" onclick="cm('m-uc-logo')">&times;</button></div>
+  <div id="uc-logo-preview-wrap" style="text-align:center;margin-bottom:14px"></div>
+  <input type="file" accept="image/*" onchange="onUcLogoUpload(event)" class="finp"/>
+  <div class="mfoot">
+    <button class="mbtn t" onclick="saveUcLogo()">Save</button>
+    <button class="mbtn" style="border:1.5px solid #e74c3c;color:#e74c3c;border-radius:8px" onclick="removeUcLogo()">Remove</button>
+    <button class="mbtn c" onclick="cm('m-uc-logo')">Cancel</button>
+  </div>
+</div></div>
+
+<!-- Add Photo Modal -->
+<div id="m-add-photo" class="modal"><div class="mbox">
+  <div class="mhead"><h3>Add Photo</h3><button class="mclose" onclick="cm('m-add-photo')">&times;</button></div>
+  <label class="flbl">Title</label><input id="gp-title" class="finp" placeholder="e.g. Match vs Sundowns"/>
+  <label class="flbl">Date</label><input id="gp-date" type="date" class="finp"/>
+  <label class="flbl">Club</label>
+  <select id="gp-club" class="fsel">
+    <option value="all">All Clubs / General</option>
+    <option value="warriors">Warriors FC</option>
+    <option value="gladiators">Gladiators</option>
+    <option value="titans">UC Titans NC</option>
+  </select>
+  <label class="flbl">Photo</label>
+  <div id="gp-preview" style="margin-bottom:8px"></div>
+  <label for="gp-file" style="display:block;padding:9px;border-radius:8px;border:1.5px dashed #4dc8c8;text-align:center;cursor:pointer;font-size:13px;color:#4dc8c8;font-weight:700;background:#f0fbfb">Choose Photo</label>
+  <input type="file" id="gp-file" accept="image/*" onchange="onGpFileSelect(event)" style="display:none"/>
+  <div class="mfoot"><button class="mbtn t" onclick="doAddPhoto()">Upload Photo</button><button class="mbtn c" onclick="cm('m-add-photo')">Cancel</button></div>
+</div></div>
+
+<!-- Lightbox Modal -->
+<div id="m-lightbox" class="modal" style="background:rgba(0,0,0,.92)" onclick="if(event.target===this)cm('m-lightbox')">
+  <div style="position:relative;max-width:92vw;max-height:92vh;display:flex;flex-direction:column;align-items:center">
+    <button onclick="cm('m-lightbox')" style="position:fixed;top:16px;right:16px;background:rgba(255,255,255,.15);border:none;color:#fff;font-size:28px;cursor:pointer;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;z-index:10">&times;</button>
+    <button id="lb-prev" onclick="lightboxNav(-1)" style="position:fixed;left:12px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;font-size:28px;cursor:pointer;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;z-index:10">&#8249;</button>
+    <button id="lb-next" onclick="lightboxNav(1)" style="position:fixed;right:12px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;color:#fff;font-size:28px;cursor:pointer;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;z-index:10">&#8250;</button>
+    <img id="lb-img" src="" alt="" style="max-width:90vw;max-height:75vh;object-fit:contain;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.5)"/>
+    <div style="margin-top:14px;text-align:center">
+      <div id="lb-title" style="font-family:'Oswald',sans-serif;font-size:20px;color:#fff;letter-spacing:.5px"></div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:4px">
+        <span id="lb-club" style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase"></span>
+        <span id="lb-date" style="font-size:12px;color:#aaa"></span>
+        <span id="lb-counter" style="font-size:12px;color:#666"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Discipline Modal -->
+<div id="m-discipline" class="modal"><div class="mbox">
+  <div class="mhead"><h3>Card / Discipline</h3><button class="mclose" onclick="cm('m-discipline')">&times;</button></div>
+  <label class="flbl">Player</label><select id="dc-player" class="fsel"></select>
+  <label class="flbl">Card Type</label>
+  <select id="dc-type" class="fsel">
+    <option value="yellow">Yellow Card</option>
+    <option value="red">Red Card</option>
+  </select>
+  <div class="mfoot"><button class="mbtn t" onclick="doAddCard()">Issue Card</button><button class="mbtn c" onclick="cm('m-discipline')">Cancel</button></div>
+</div></div>
+
+<!-- Admin Login -->
+<div id="m-admin" class="modal" style="padding:0"><div class="admin-login-box">
+  <div class="alb-left">
+    <div class="alb-logo-ring"><svg viewBox="0 0 40 40" width="40" height="40" fill="none"><circle cx="20" cy="20" r="18" stroke="rgba(77,200,200,.4)" stroke-width="1.5"/><circle cx="20" cy="20" r="12" stroke="#4dc8c8" stroke-width="1.5"/><circle cx="20" cy="20" r="3" fill="#4dc8c8"/></svg></div>
+    <div class="alb-brand">URBAN CIRCLE</div>
+    <div class="alb-sport">SPORTS PLATFORM</div>
+    <div class="alb-divider"></div>
+    <div class="alb-tagline">Admin Portal</div>
+    <div class="alb-sub">Secure access for authorized personnel only</div>
+    <div class="alb-dots"><span></span><span></span><span></span></div>
+  </div>
+  <div class="alb-right">
+    <button class="alb-close" onclick="cm('m-admin')">&times;</button>
+    <div class="alb-form-title">Welcome back</div>
+    <div class="alb-form-sub">Sign in to your admin account</div>
+    <div class="alb-field">
+      <label class="alb-lbl">Username</label>
+      <div class="alb-input-wrap">
+        <svg class="alb-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <input id="ap-username" class="alb-input" placeholder="Enter username" autocomplete="username" onkeydown="if(event.key==='Enter')doAdminLogin()"/>
+      </div>
+    </div>
+    <div class="alb-field">
+      <label class="alb-lbl">Password</label>
+      <div class="alb-input-wrap">
+        <svg class="alb-input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+        <input id="ap" type="password" class="alb-input" placeholder="Enter password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doAdminLogin()"/>
+      </div>
+    </div>
+    <div id="ap-err" class="alb-err" style="display:none"></div>
+    <button class="alb-submit" onclick="doAdminLogin()"><span>Sign In</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
+    <div class="alb-footer">Access restricted to authorized admins only</div>
+  </div>
+</div></div>
+
+<!-- Create Admin Profile -->
+<div id="m-create-admin" class="modal"><div class="mbox wide">
+  <div class="mhead"><h3>Create Admin Profile</h3><button class="mclose" onclick="cm('m-create-admin')">x</button></div>
+  <div style="background:#fff8e0;border:1.5px solid #ffe0a0;border-radius:8px;padding:10px 13px;margin-bottom:12px;font-size:12px;color:#b8860b"><strong>Master Code required.</strong> Only platform owners can create admins. Max 4 profiles allowed.</div>
+  <label class="flbl">Master Code</label><input id="ca-master" type="password" class="finp" placeholder="Enter master code"/>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Full Name</label><input id="ca-name" class="finp" placeholder="e.g. Yoren Tyzer"/></div>
+    <div><label class="flbl">Username</label><input id="ca-username" class="finp" placeholder="e.g. yoren"/></div>
+  </div>
+  <label class="flbl">Password</label><input id="ca-password" type="password" class="finp" placeholder="Create a password"/>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Role</label>
+      <select id="ca-role" class="fsel">
+        <option value="Platform Owner">Platform Owner</option>
+        <option value="Club Admin">Club Admin</option>
+        <option value="Match Official">Match Official</option>
+        <option value="Content Manager">Content Manager</option>
+      </select>
+    </div>
+    <div><label class="flbl">Manages Club</label>
+      <select id="ca-club" class="fsel">
+        <option value="all">All Clubs</option>
+        <option value="warriors">Warriors FC</option>
+        <option value="gladiators">Gladiators</option>
+        <option value="titans">UC Titans NC</option>
+      </select>
+    </div>
+  </div>
+  <p id="ca-err" class="err" style="display:none"></p>
+  <div id="admin-profiles-list" style="margin-top:14px;padding-top:14px;border-top:1px solid #eee"></div>
+  <div class="mfoot"><button class="mbtn g" onclick="doCreateAdmin()">Create Profile</button><button class="mbtn c" onclick="cm('m-create-admin')">Cancel</button></div>
+</div></div>
+
+<div id="toast-wrap" style="position:fixed;top:70px;right:14px;z-index:999;display:flex;flex-direction:column;gap:8px;max-width:320px"></div>
+
+<script src="script.js"></script>
+</body>
+</html>

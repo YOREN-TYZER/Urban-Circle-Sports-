@@ -42,7 +42,7 @@ button,input,select,textarea{font-family:var(--fb);outline:none}
 /* ── LIVE BADGE ─────────────────────────────── */
 .live-badge{display:inline-flex;align-items:center;gap:5px;background:#e74c3c;color:#fff;font-size:10px;font-weight:800;padding:3px 9px;border-radius:20px;letter-spacing:1px}
 .live-dot{width:6px;height:6px;border-radius:50%;background:#fff;animation:pulse 1.2s infinite}
-.live-badge.paused-badge{background:#f35212}
+.live-badge.paused-badge{background:#f39c12}
 .live-badge.paused-badge .pause-icon{font-size:8px;line-height:1;letter-spacing:-1px}
 
 /* ── HERO ───────────────────────────────────── */

@@ -389,6 +389,12 @@ async function dbClearStandings(cid) {
     for (const r of (rows||[])) { await sb('DELETE', 'standings', {eq: {id: r.id}}); }
   } catch(e) { console.warn('dbClearStandings failed:', e.message); }
 }
+async function dbDeleteStandingRow(cid, team) {
+  try {
+    const rows = await sb('GET', 'standings', {eq: {club_id: cid, team}, select: 'id'});
+    for (const r of (rows||[])) { await sb('DELETE', 'standings', {eq: {id: r.id}}); }
+  } catch(e) { console.warn('dbDeleteStandingRow failed:', e.message); }
+}
 
 async function dbSaveGalleryItem(item) {
   try {
@@ -448,7 +454,7 @@ async function checkDBConnection() {
 // REALTIME (live sync across every connected device — no reload needed)
 // =====================================================================
 let supaRT=null;
-const RT_TABLES=['matchdays','scorers','clubs','players','gallery','headlines','comments','ratings','standings','admins'];
+const RT_TABLES=['matchdays','scorers','clubs','players','gallery','headlines','comments','ratings','standings','admins','settings'];
 function initRealtime(){
   if(!dbConnected)return;
   if(!window.supabase||typeof window.supabase.createClient!=='function'){
@@ -480,6 +486,7 @@ function refreshAfterRT(){
   if(activeView.id==='view-home')renderHome();
   else if(activeView.id==='view-club'&&clubId)renderClub();
   else if(activeView.id==='view-matchday'&&clubId&&mdId)renderMd();
+  else if(activeView.id==='view-logshub')renderLogsHubTab(logsHubTab);
 }
 async function handleRealtimeChange(table,payload){
   const row=payload.new||payload.old||{};
@@ -524,9 +531,21 @@ async function handleRealtimeChange(table,payload){
       debounceRT(table+'_'+mid,async function(){ await loadMatchdayDataFromDB(clubId,mdId); refreshAfterRT(); });
     }
   } else if(table==='standings'){
-    const cid=row.club_id;if(cid)debounceRT('standings_'+cid,function(){ loadStandingsFromDB(cid); });
+    const cid=row.club_id;if(!cid)return;
+    debounceRT('standings_'+cid,async function(){
+      await loadStandingsFromDB(cid);
+      if($('m-standings')?.classList.contains('open')&&$('standings-club-id')?.value===cid) renderStandingsModal(cid);
+      refreshAfterRT();
+    });
   } else if(table==='admins'){
     debounceRT('admins',function(){ loadAdminsFromDB(); });
+  } else if(table==='settings'){
+    if(row.key==='uc_logo'){
+      ucLogo=row.value||null;
+      if(ucLogo)localStorage.setItem('uc_main_logo',ucLogo);else localStorage.removeItem('uc_main_logo');
+      renderBrandLogo();
+      refreshAfterRT();
+    }
   }
 }
 
@@ -720,6 +739,74 @@ let dbAdmins=[];
 function getClub(id){return clubs.find(c=>c.id===id)}
 function getData(id){return clubData[id]}
 function isNetball(cid){return getClub(cid||clubId)?.sport==='Netball'}
+
+// =====================================================================
+// EXTERNAL LEAGUE LINKS (ujcampusleague.leaguerepublic.com)
+// Maps a team name typed into our standings table to that exact team's
+// page on the external league site. Falls back to the division's main
+// page if a specific team isn't found (e.g. a newly-joined team).
+// =====================================================================
+const LEAGUE_DIVISION_PAGE = {
+  warriors:   'https://ujcampusleague.leaguerepublic.com/fg/1_457102445.html', // Promo League 2026
+  gladiators: 'https://ujcampusleague.leaguerepublic.com/fg/1_885235865.html'  // Foundation League Stream A
+};
+const LEAGUE_TEAM_LINKS = {
+  warriors: {
+    'African Star':'https://ujcampusleague.leaguerepublic.com/team/814288916/60630148.html',
+    'The Richmond FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/890268894.html',
+    'Urban C Warriors FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/32704365.html',
+    'Warriors FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/32704365.html',
+    'Kilimanjaro':'https://ujcampusleague.leaguerepublic.com/team/814288916/9439592.html',
+    'Kingsway Spartans':'https://ujcampusleague.leaguerepublic.com/team/814288916/346928311.html',
+    'MVSL All Stars':'https://ujcampusleague.leaguerepublic.com/team/814288916/373495055.html',
+    'Cornerstone':'https://ujcampusleague.leaguerepublic.com/team/814288916/7890749.html',
+    'Conerstone':'https://ujcampusleague.leaguerepublic.com/team/814288916/7890749.html',
+    'Jabali Day House':'https://ujcampusleague.leaguerepublic.com/team/814288916/135757517.html',
+    'Eswatini Citizens':'https://ujcampusleague.leaguerepublic.com/team/814288916/766558727.html',
+    'UJ Miners':'https://ujcampusleague.leaguerepublic.com/team/814288916/455022107.html',
+    'Betrams mews fc':'https://ujcampusleague.leaguerepublic.com/team/814288916/96641266.html',
+    'The Waldorfians':'https://ujcampusleague.leaguerepublic.com/team/814288916/429318591.html',
+    'UJ CS':'https://ujcampusleague.leaguerepublic.com/team/814288916/698890153.html',
+    'The Fields United':'https://ujcampusleague.leaguerepublic.com/team/814288916/658041074.html',
+    'K-stay HH Stars FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/344420566.html',
+    'Ivory FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/244930332.html'
+  },
+  gladiators: {
+    'Infinity FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/802688774.html',
+    'UC Gladiators FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/666916840.html',
+    'Gladiators FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/666916840.html',
+    'Horizon Heights fc':'https://ujcampusleague.leaguerepublic.com/team/814288916/42587819.html',
+    'Twickenham FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/510658161.html',
+    'Twelve 91 Ballers fc':'https://ujcampusleague.leaguerepublic.com/team/814288916/735266100.html',
+    'Umhlanga FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/178360658.html',
+    'Buxton FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/776133314.html',
+    'Jacaranda FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/55243718.html',
+    'Richmond Central':'https://ujcampusleague.leaguerepublic.com/team/814288916/927201576.html',
+    'Beachway FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/864735913.html'
+  }
+};
+// Looks up the best link for a team name typed into our app, with
+// case/whitespace-insensitive exact matching, then a loose partial match,
+// then the division page as a last resort.
+function leagueLinkFor(clubId,teamName){
+  const map=LEAGUE_TEAM_LINKS[clubId];
+  if(!map)return null;
+  const norm=s=>(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+  const target=norm(teamName);
+  if(!target)return LEAGUE_DIVISION_PAGE[clubId]||null;
+  for(const name in map){ if(norm(name)===target) return map[name]; }
+  for(const name in map){ const n=norm(name); if(n.includes(target)||target.includes(n)) return map[name]; }
+  return LEAGUE_DIVISION_PAGE[clubId]||null;
+}
+// Wraps a team name in a link to its external league page, if one exists
+// for that club. Returns plain (escaped) text if the club isn't on that
+// external league (e.g. netball).
+function teamNameLinkH(clubId,teamName){
+  const url=leagueLinkFor(clubId,teamName);
+  const safe=(teamName||'').replace(/</g,'&lt;');
+  if(!url)return safe;
+  return '<a href="'+url+'" target="_blank" rel="noopener" style="color:inherit;text-decoration:none;border-bottom:1px dotted currentColor" onclick="event.stopPropagation()" title="View on UJ Campus League">'+safe+'</a>';
+}
 function compRating(map){const v=Object.values(map||{});return v.length?Math.min(5,v.reduce((s,r)=>s+r.stars,0)/v.length):0}
 function overallRating(cid,pid){return compRating(ratings[cid+'_'+pid]||{})}
 function mdRating(cid,mid,pid){return compRating(ratings[cid+'_'+mid+'_'+pid]||{})}
@@ -1252,9 +1339,36 @@ function openUcLogoModal(){
 }
 function onUcLogoUpload(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{newUcLogoData=ev.target.result;$('uc-logo-preview-wrap').innerHTML=`<img class="uc-logo-preview" src="${newUcLogoData}" alt="UC Logo"/>`;};r.readAsDataURL(file);}
 function removeUcLogo(){newUcLogoData=null;$('uc-logo-preview-wrap').innerHTML=`<div class="uc-logo-placeholder">UC</div>`;}
-function saveUcLogo(){
-  if(newUcLogoData!==undefined){ucLogo=newUcLogoData;if(ucLogo)localStorage.setItem('uc_main_logo',ucLogo);else localStorage.removeItem('uc_main_logo');renderBrandLogo();}
+async function saveUcLogo(){
+  if(newUcLogoData!==undefined){
+    ucLogo=newUcLogoData;
+    if(ucLogo)localStorage.setItem('uc_main_logo',ucLogo);else localStorage.removeItem('uc_main_logo');
+    renderBrandLogo();
+    if(dbConnected){ await dbSaveSetting('uc_logo',ucLogo||''); }
+  }
   cm('m-uc-logo');showToast('Logo Updated','Main logo saved successfully.');
+}
+
+// =====================================================================
+// SETTINGS (key/value — currently just the main UC logo, saved to
+// Supabase so it shows up the same on every device, not just this browser)
+// =====================================================================
+async function loadSettingsFromDB(){
+  try{
+    const rows=await sb('GET','settings',{eq:{key:'uc_logo'},select:'value'});
+    if(rows&&rows.length&&rows[0].value){
+      ucLogo=rows[0].value;
+      localStorage.setItem('uc_main_logo',ucLogo);
+    }
+  }catch(e){ console.warn('loadSettingsFromDB failed:',e.message); }
+}
+async function dbSaveSetting(key,value){
+  try{
+    const existing=await sb('GET','settings',{eq:{key},select:'key'});
+    if(existing&&existing.length){ await sb('PATCH','settings',{eq:{key},data:{value}}); }
+    else { await sb('POST','settings',{data:{key,value}}); }
+    return true;
+  }catch(e){ console.warn('dbSaveSetting failed:',e.message); return false; }
 }
 
 // =====================================================================
@@ -2431,10 +2545,13 @@ function renderHubStandings(){
     html+='<div class="standings-club-block">';
     html+='<div class="standings-club-hdr" style="background:'+club.primary+'">';
     html+='<img src="'+logoSrc(club)+'" style="width:28px;height:28px;object-fit:contain;border-radius:6px;flex-shrink:0"/>';
-    html+='<div class="standings-club-hdr-name" style="color:'+club.accent+'">'+club.name+'</div>';
+    html+='<div class="standings-club-hdr-name" style="color:'+club.accent+';flex:1">'+club.name+'</div>';
+    if(isAdmin){
+      html+='<button onclick="openStandings(\''+club.id+'\')" style="padding:5px 12px;border-radius:7px;border:1.5px solid '+club.accent+';color:'+club.accent+';background:transparent;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">&#9998; Edit</button>';
+    }
     html+='</div>';
     if(!rows.length){
-      html+='<div class="standings-no-data">No standings posted yet</div>';
+      html+='<div class="standings-no-data">No standings posted yet'+(isAdmin?' — click Edit to add some.':'.')+'</div>';
     } else {
       html+='<div class="standings-table-wrap"><table class="standings-table">';
       html+='<thead><tr style="background:'+club.primary+'08">'+hdrs.map(function(h){
@@ -2445,7 +2562,7 @@ function renderHubStandings(){
         var gd=(row.gf||0)-(row.ga||0);
         var gdStr=(gd>=0?'+':'')+gd;
         html+='<tr>';
-        html+='<td>'+( i+1)+'. '+row.team+'</td>';
+        html+='<td>'+( i+1)+'. '+teamNameLinkH(club.id,row.team)+'</td>';
         html+='<td>'+(row.p||0)+'</td>';
         html+='<td style="color:#2ecc71;font-weight:700">'+(row.w||0)+'</td>';
         if(!isNB) html+='<td style="color:#f39c12">'+(row.d||0)+'</td>';
@@ -2891,6 +3008,7 @@ function renderStandingsModal(cid){
   var acc=club?club.accent:'#4dc8c8',pri=club?club.primary:'#1d2d5a';
   var tableH='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:'+pri+'">'+
     hdrs.map(function(h){return '<th style="padding:8px 10px;text-align:'+(h==='Team'?'left':'center')+';color:'+acc+';font-size:11px;letter-spacing:.5px;white-space:nowrap">'+h+'</th>';}).join('')+
+    (isAdmin?'<th></th>':'')+
     '</tr></thead><tbody>';
   rows.forEach(function(row,i){
     var bg=i%2===0?'#f8f9fc':'#fff';
@@ -2898,8 +3016,9 @@ function renderStandingsModal(cid){
     var gd=(row.gf||0)-(row.ga||0);
     var gdStr=(gd>=0?'+':'')+gd;
     var gdCol=gd>=0?'#2ecc71':'#e74c3c';
+    var teamSafe=row.team.replace(/'/g,"\\'");
     tableH+='<tr style="background:'+bg+'">'+
-      '<td style="padding:8px 10px;font-weight:700;color:#1a1a2e">'+(i+1)+'. '+row.team+'</td>'+
+      '<td style="padding:8px 10px;font-weight:700;color:#1a1a2e">'+(i+1)+'. '+teamNameLinkH(cid,row.team)+'</td>'+
       '<td style="text-align:center;padding:8px 6px">'+(row.p||0)+'</td>'+
       '<td style="text-align:center;padding:8px 6px;color:#2ecc71;font-weight:700">'+(row.w||0)+'</td>'+
       (isNB?'':'<td style="text-align:center;padding:8px 6px;color:#f39c12">'+(row.d||0)+'</td>')+
@@ -2908,6 +3027,10 @@ function renderStandingsModal(cid){
       '<td style="text-align:center;padding:8px 6px">'+(row.ga||0)+'</td>'+
       '<td style="text-align:center;padding:8px 6px;color:'+gdCol+'">'+gdStr+'</td>'+
       '<td style="text-align:center;padding:8px 6px;font-family:Oswald,sans-serif;font-size:16px;font-weight:700;color:'+acc+'">'+pts+'</td>'+
+      (isAdmin?('<td style="text-align:center;padding:4px 6px;white-space:nowrap">'+
+        '<button onclick="editStandingRow(\''+cid+'\',\''+teamSafe+'\')" title="Edit row" style="border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px">&#9998;</button>'+
+        '<button onclick="deleteStandingRow(\''+cid+'\',\''+teamSafe+'\')" title="Delete row" style="border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px;color:#e74c3c">&#128465;</button>'+
+        '</td>'):'')+
       '</tr>';
   });
   tableH+='</tbody></table></div>';
@@ -2916,7 +3039,7 @@ function renderStandingsModal(cid){
   var formH='';
   if(isAdmin){
     formH='<div style="padding-top:14px;border-top:1.5px solid #eee;margin-top:14px">'+
-      '<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#999;margin-bottom:10px">Add / Update Team</div>'+
+      '<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#999;margin-bottom:10px">Add / Update Team <span style="text-transform:none;font-weight:400;color:#bbb">(same name = overwrite that row)</span></div>'+
       '<div style="display:grid;grid-template-columns:2fr repeat('+(isNB?5:6)+',1fr);gap:6px">'+
       '<div><label class="flbl">Team Name</label><input id="st-team" class="finp" placeholder="Team name"/></div>'+
       '<div><label class="flbl">P</label><input id="st-p" type="number" class="finp" min="0" placeholder="0"/></div>'+
@@ -2927,11 +3050,34 @@ function renderStandingsModal(cid){
       '<div><label class="flbl">GA</label><input id="st-ga" type="number" class="finp" min="0" placeholder="0"/></div>'+
       '</div>'+
       '<div style="display:flex;gap:8px;margin-top:10px">'+
-      '<button onclick="addStandingRow(\''+cid+'\')" style="padding:8px 18px;border-radius:8px;border:1.5px solid #2ecc71;color:#2ecc71;background:#fff;font-weight:700;font-size:13px;cursor:pointer">+ Add Row</button>'+
+      '<button onclick="addStandingRow(\''+cid+'\')" style="padding:8px 18px;border-radius:8px;border:1.5px solid #2ecc71;color:#2ecc71;background:#fff;font-weight:700;font-size:13px;cursor:pointer">+ Add / Update Row</button>'+
       '<button onclick="clearStandings(\''+cid+'\')" style="padding:8px 14px;border-radius:8px;border:1.5px solid #e74c3c;color:#e74c3c;background:#fff;font-weight:700;font-size:13px;cursor:pointer">Clear All</button>'+
       '</div></div>';
   }
   $('standings-form').innerHTML=formH;
+}
+// Pre-fills the Add/Update form with an existing row's values so admins
+// can tweak a single row without retyping everything.
+function editStandingRow(cid,team){
+  var row=(standings[cid]||[]).find(function(r){return r.team===team;});
+  if(!row)return;
+  if($('st-team'))$('st-team').value=row.team;
+  if($('st-p'))$('st-p').value=row.p||0;
+  if($('st-w'))$('st-w').value=row.w||0;
+  if($('st-d'))$('st-d').value=row.d||0;
+  if($('st-l'))$('st-l').value=row.l||0;
+  if($('st-gf'))$('st-gf').value=row.gf||0;
+  if($('st-ga'))$('st-ga').value=row.ga||0;
+  if($('st-team'))$('st-team').focus();
+}
+async function deleteStandingRow(cid,team){
+  showConfirm('Delete Row','Remove '+team+' from the standings?','Yes, Delete',async function(){
+    standings[cid]=(standings[cid]||[]).filter(function(r){return r.team!==team;});
+    sv('uc_standings_v7',standings);
+    if(dbConnected){ await dbDeleteStandingRow(cid,team); }
+    writeLog('standings_row_deleted','club',{club_id:cid,details:{team:team}});
+    renderStandingsModal(cid);showToast('Removed',team+' removed from standings.');
+  });
 }
 async function addStandingRow(cid){
   var team=($('st-team')||{}).value;if(!team||!team.trim()){showToast('Missing','Enter team name.');return;}
@@ -2973,6 +3119,7 @@ async function init(){
     await Promise.all(clubs.map(c=>loadClubDataFromDB(c.id)));
     await loadGalleryFromDB();
     await loadLiveScorersGlobal();
+    await loadSettingsFromDB();
   }
   checkScheduledNotifs();
   renderHome();

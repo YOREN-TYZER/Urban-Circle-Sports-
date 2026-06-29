@@ -724,7 +724,8 @@ function requireOwner(actionLabel){
 let expPlayer=null,spOpen=true,lpOpen=true;
 let editingStatsPid=null,editingPicPid=null;
 let newLogoData=undefined,newPicData=undefined,newUcLogoData=undefined;
-let piNewPhoto=undefined,viewingPid=null,editMdId=null;
+let piNewPhoto=undefined,piNewPhotoFile=undefined,viewingPid=null,editMdId=null;
+let newPicFile=undefined;
 let logsPage=0; const LOGS_PER_PAGE=25;
 let fanId=localStorage.getItem('uc_fan')||('fan_'+Math.random().toString(36).slice(2,10));
 localStorage.setItem('uc_fan',fanId);
@@ -953,8 +954,8 @@ function getStatFields(cid, pos){
       {key:'cleanSheetPct',lbl:'CS %',computed:true},
       {key:'goals',lbl:'Goals'},
       {key:'assists',lbl:'Assists'},
-      {key:'yellowCards',lbl:'Yellow Card'},
-      {key:'redCards',lbl:'Red Card'}
+      {key:'yellowCards',lbl:'YC'},
+      {key:'redCards',lbl:'RC'}
     ];
   }
   if(cat === 'def'){
@@ -963,8 +964,8 @@ function getStatFields(cid, pos){
       {key:'goals',lbl:'Goals'},
       {key:'assists',lbl:'Assists'},
       {key:'goalsConceded',lbl:'Conceded'},
-      {key:'yellowCards',lbl:'Yellow Card'},
-      {key:'redCards',lbl:'Red Card'}
+      {key:'yellowCards',lbl:'YC'},
+      {key:'redCards',lbl:'RC'}
     ];
   }
   // Midfielders / Forwards / Wingers / Strikers
@@ -972,8 +973,8 @@ function getStatFields(cid, pos){
     {key:'gp',lbl:'Games'},
     {key:'goals',lbl:'Goals'},
     {key:'assists',lbl:'Assists'},
-    {key:'yellowCards',lbl:'Yellow Card'},
-    {key:'redCards',lbl:'Red Card'}
+    {key:'yellowCards',lbl:'YC'},
+    {key:'redCards',lbl:'RC'}
   ];
 }
 function computeStatValue(p, f){
@@ -2240,7 +2241,7 @@ function clearLogs(){showConfirm('Clear All Logs','Delete all activity logs?','Y
 // PLAYER INFO MODAL
 // =====================================================================
 function openPlayerInfo(pid){
-  viewingPid=pid;piNewPhoto=undefined;
+  viewingPid=pid;piNewPhoto=undefined;piNewPhotoFile=undefined;
   const club=getClub(clubId),data=getData(clubId),p=data.players.find(pl=>pl.id===pid);if(!p)return;
   const r=overallRating(clubId,pid),isNB=isNetball(clubId);
   $('pi-modal-title').textContent=p.shirtname||p.name;
@@ -2297,7 +2298,17 @@ function switchToEditPlayer(){
   $('pi-view').style.display='none';$('pi-edit').style.display='';
 }
 function switchToViewPlayer(){$('pi-view').style.display='';$('pi-edit').style.display='none';}
-function onPlayerEditPhoto(e){const file=e.target.files[0];if(!file)return;const club=getClub(clubId);const r=new FileReader();r.onload=ev=>{piNewPhoto=ev.target.result;$('pi-edit-avatar').innerHTML=`<img src="${piNewPhoto}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid ${club.accent}"/>`;};r.readAsDataURL(file);}
+function onPlayerEditPhoto(e){
+  const file=e.target.files[0];if(!file)return;
+  const club=getClub(clubId);
+  const r=new FileReader();
+  r.onload=ev=>{
+    piNewPhoto=ev.target.result; // keep as dataURL for preview & fallback
+    piNewPhotoFile=file;         // keep raw file for direct upload
+    $('pi-edit-avatar').innerHTML=`<img src="${piNewPhoto}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;border:3px solid ${club.accent}"/>`;
+  };
+  r.readAsDataURL(file);
+}
 async function savePlayerEdit(){
   const p=clubData[clubId].players.find(pl=>pl.id===viewingPid);if(!p)return;
   const isNB=isNetball(clubId);
@@ -2305,15 +2316,22 @@ async function savePlayerEdit(){
   p.age=parseInt($('pi-age').value)||0;p.nationality=$('pi-nationality').value.trim();p.hometown=$('pi-hometown').value.trim();p.height=parseInt($('pi-height').value)||0;p.bio=$('pi-bio').value.trim();
   p.shirtname=$('pi-shirtname')?.value.trim()||'';
   if(!isNB)p.foot=$('pi-foot')?.value||'';
-  getStatFields(clubId).forEach(f=>{const el=$('pi-stat-'+f.key);if(el)p[f.key]=parseInt(el.value)||0;});
-  if(piNewPhoto!==undefined)p.img=piNewPhoto;
-  if(dbConnected){
-    try { await dbSavePlayer(viewingPid,p); }
-    catch(e){ /* error toast already shown by dbSavePlayer */ return; }
+  getStatFields(clubId,p.pos).forEach(f=>{const el=$('pi-stat-'+f.key);if(el)p[f.key]=parseInt(el.value)||0;});
+  if(piNewPhoto!==undefined){
+    if(piNewPhoto===null){
+      p.img=null;
+    } else {
+      try{
+        const compressed=await compressImage(piNewPhoto,400,400,0.75);
+        p.img=compressed;
+      } catch(e){
+        p.img=piNewPhoto;
+      }
+    }
   }
   if(dbConnected){
-    try{ await dbSavePlayer(viewingPid,p); }
-    catch(e){ return; }
+    try { await dbSavePlayer(viewingPid,p); }
+    catch(e){ showToast('Save Error','Could not save player: '+e.message); return; }
   }
   sv('uc_data_v7',clubData);writeLog('player_updated','player',{player_id:viewingPid,details:{name:p.name}});
   showToast('Player Updated',p.name+' saved.');cm('m-player-info');renderPlayers();
@@ -2420,10 +2438,63 @@ async function saveClub(){
   writeLog('club_updated','club',{});cm('m-club');renderClub();showToast('Club Updated','Club details saved.');
 }
 
-function openPp(pid){editingPicPid=pid;newPicData=undefined;const p=getData(clubId).players.find(pl=>pl.id===pid),club=getClub(clubId);$('pp-pre-wrap').innerHTML=p.img?`<img class="pp-pre" src="${p.img}" alt="${p.name}"/>`:`<div class="pp-pre-av" style="border-color:${club.accent};color:${club.accent}">${p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>`;$('rm-pp-btn').style.display=p.img?'':'none';$('pp-file').value='';openModal('m-pp');}
-function onPpUpload(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{newPicData=ev.target.result;$('pp-pre-wrap').innerHTML=`<img class="pp-pre" src="${newPicData}"/>`;$('rm-pp-btn').style.display='';};r.readAsDataURL(file);}
+// Compress a base64 dataURL to a max width/height JPEG at the given quality (0–1)
+function compressImage(dataUrl,maxW,maxH,quality){
+  return new Promise(function(resolve,reject){
+    const img=new Image();
+    img.onload=function(){
+      let w=img.width,h=img.height;
+      if(w>maxW){h=Math.round(h*maxW/w);w=maxW;}
+      if(h>maxH){w=Math.round(w*maxH/h);h=maxH;}
+      const canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      const ctx=canvas.getContext('2d');
+      ctx.drawImage(img,0,0,w,h);
+      resolve(canvas.toDataURL('image/jpeg',quality));
+    };
+    img.onerror=reject;
+    img.src=dataUrl;
+  });
+}
+
+function openPp(pid){editingPicPid=pid;newPicData=undefined;newPicFile=undefined;const p=getData(clubId).players.find(pl=>pl.id===pid),club=getClub(clubId);$('pp-pre-wrap').innerHTML=p.img?`<img class="pp-pre" src="${p.img}" alt="${p.name}"/>`:`<div class="pp-pre-av" style="border-color:${club.accent};color:${club.accent}">${p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>`;$('rm-pp-btn').style.display=p.img?'':'none';$('pp-file').value='';openModal('m-pp');}
+function onPpUpload(e){
+  const file=e.target.files[0];if(!file)return;
+  const r=new FileReader();
+  r.onload=ev=>{
+    newPicData=ev.target.result;
+    newPicFile=file;
+    $('pp-pre-wrap').innerHTML=`<img class="pp-pre" src="${newPicData}"/>`;
+    $('rm-pp-btn').style.display='';
+  };
+  r.readAsDataURL(file);
+}
 function rmPlayerPic(){newPicData=null;const p=getData(clubId).players.find(pl=>pl.id===editingPicPid),club=getClub(clubId);$('pp-pre-wrap').innerHTML=`<div class="pp-pre-av" style="border-color:${club.accent};color:${club.accent}">${p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase()}</div>`;$('rm-pp-btn').style.display='none';}
-function savePp(){if(newPicData===undefined){cm('m-pp');return;}const p=clubData[clubId].players.find(pl=>pl.id===editingPicPid);if(p)p.img=newPicData;sv('uc_data_v7',clubData);cm('m-pp');renderPlayers();showToast('Photo Updated','Player photo saved.');}
+async function savePp(){
+  if(newPicData===undefined){cm('m-pp');return;}
+  const p=clubData[clubId].players.find(pl=>pl.id===editingPicPid);
+  if(!p)return;
+  if(newPicData===null){
+    p.img=null;
+  } else {
+    // Compress image to max 400x400 JPEG at 75% quality before saving as base64
+    try{
+      const compressed=await compressImage(newPicData,400,400,0.75);
+      p.img=compressed;
+    } catch(e){
+      p.img=newPicData; // fallback: use original if compression fails
+    }
+  }
+  if(dbConnected){
+    try{ await dbSavePlayer(editingPicPid,p); }
+    catch(e){
+      showToast('Save Error','Could not save photo: '+e.message);
+      return;
+    }
+  }
+  sv('uc_data_v7',clubData);
+  cm('m-pp');renderPlayers();showToast('Photo Updated','Player photo saved.');
+}
 
 function openAddPlayer(){const club=getClub(clubId);$('np-pos').innerHTML=POSITIONS[club.sport].map(p=>`<option value="${p}">${p}</option>`).join('');$('np-name').value='';$('np-num').value='';openModal('m-add-player');}
 async function doAddPlayer(){
@@ -3196,6 +3267,7 @@ async function init(){
     // goal scorers are accurate from Supabase the moment the app opens —
     // on any device, not just the one that made the change.
     await Promise.all(clubs.map(c=>loadClubDataFromDB(c.id)));
+    await Promise.all(clubs.map(c=>loadStandingsFromDB(c.id)));
     await loadGalleryFromDB();
     await loadLiveScorersGlobal();
     await loadSettingsFromDB();

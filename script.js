@@ -953,8 +953,8 @@ function getStatFields(cid, pos){
       {key:'cleanSheetPct',lbl:'CS %',computed:true},
       {key:'goals',lbl:'Goals'},
       {key:'assists',lbl:'Assists'},
-      {key:'yellowCards',lbl:'YC'},
-      {key:'redCards',lbl:'RC'}
+      {key:'yellowCards',lbl:'Yellow Card'},
+      {key:'redCards',lbl:'Red Card'}
     ];
   }
   if(cat === 'def'){
@@ -963,8 +963,8 @@ function getStatFields(cid, pos){
       {key:'goals',lbl:'Goals'},
       {key:'assists',lbl:'Assists'},
       {key:'goalsConceded',lbl:'Conceded'},
-      {key:'yellowCards',lbl:'YC'},
-      {key:'redCards',lbl:'RC'}
+      {key:'yellowCards',lbl:'Yellow Card'},
+      {key:'redCards',lbl:'Red Card'}
     ];
   }
   // Midfielders / Forwards / Wingers / Strikers
@@ -972,8 +972,8 @@ function getStatFields(cid, pos){
     {key:'gp',lbl:'Games'},
     {key:'goals',lbl:'Goals'},
     {key:'assists',lbl:'Assists'},
-    {key:'yellowCards',lbl:'YC'},
-    {key:'redCards',lbl:'RC'}
+    {key:'yellowCards',lbl:'Yellow Card'},
+    {key:'redCards',lbl:'Red Card'}
   ];
 }
 function computeStatValue(p, f){

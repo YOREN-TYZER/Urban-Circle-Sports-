@@ -75,8 +75,8 @@ async function loadClubsFromDB() {
 async function loadClubDataFromDB(cid) {
   try {
     const [players, matchdays, headlines] = await Promise.all([
-      sb('GET', 'players', {eq: {club_id: cid}, select: '*', order: 'num'}),
-      sb('GET', 'matchdays', {eq: {club_id: cid}, select: '*', order: 'created_at.desc'}),
+      sb('GET', 'players', {eq: {club_id: cid}, select: '*', order: 'created_at'}),
+      sb('GET', 'matchdays', {eq: {club_id: cid}, select: '*', order: 'created_at'}),
       sb('GET', 'headlines', {eq: {club_id: cid}, select: '*', order: 'created_at.desc'})
     ]);
     const normPlayers = (players||[]).map(p => ({
@@ -730,6 +730,7 @@ let fanId=localStorage.getItem('uc_fan')||('fan_'+Math.random().toString(36).sli
 localStorage.setItem('uc_fan',fanId);
 let timerInterval=null,timerMdId=null;
 let standings=ld('uc_standings_v7',{warriors:[],gladiators:[],titans:[]});
+// NOTE: standings are loaded fresh from Supabase on init; localStorage is only a brief cache.
 let gallery=ld('uc_gallery_v7',[]);
 let dbAdmins=[];
 
@@ -748,7 +749,8 @@ function isNetball(cid){return getClub(cid||clubId)?.sport==='Netball'}
 // =====================================================================
 const LEAGUE_DIVISION_PAGE = {
   warriors:   'https://ujcampusleague.leaguerepublic.com/fg/1_457102445.html', // Promo League 2026
-  gladiators: 'https://ujcampusleague.leaguerepublic.com/fg/1_885235865.html'  // Foundation League Stream A
+  gladiators: 'https://ujcampusleague.leaguerepublic.com/fg/1_885235865.html', // Foundation League Stream A
+  titans:     'https://ujinternalnetball.leaguerepublic.com/index.html'         // UJ Internal Netball
 };
 const LEAGUE_TEAM_LINKS = {
   warriors: {
@@ -783,6 +785,39 @@ const LEAGUE_TEAM_LINKS = {
     'Jacaranda FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/55243718.html',
     'Richmond Central':'https://ujcampusleague.leaguerepublic.com/team/814288916/927201576.html',
     'Beachway FC':'https://ujcampusleague.leaguerepublic.com/team/814288916/864735913.html'
+  },
+  // UJ Internal Netball – Division A
+  titans: {
+    'Focus 1 NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/386819841.html',
+    'Herb House NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/781649434.html',
+    'Richmond Life NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/450987773.html',
+    'Karibu Jami NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/153405084.html',
+    'The Fields NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/499369831.html',
+    'Adowa NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/18508980.html',
+    'Ulwazi NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/529225857.html',
+    'Ivory Icons NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/859025398.html',
+    'Sophiatown NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/997542009.html',
+    'Impumelelo NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/751088396.html',
+    'Hector Pieterson NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/967462689.html',
+    'Horizon Ladies NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/507199898.html',
+    'Phumlani Ladies NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/991053982.html',
+    'Mill Junction NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/36710037.html',
+    // Division B
+    'Magnolia NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/168965968.html',
+    'Horizon Heights NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/792730946.html',
+    'Pro Maths NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/391773320.html',
+    'Fedsure NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/173626312.html',
+    'Imbewu NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/707845456.html',
+    'UC Titans NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/271676179.html',
+    'Mosate Heights NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/716884232.html',
+    'Betrams Mews':'https://ujinternalnetball.leaguerepublic.com/team/399458521/96118590.html',
+    'Betrams Mews NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/96118590.html',
+    'Air Ballers NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/380823565.html',
+    'Saratoga Village NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/70938225.html',
+    'Kingsway Place NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/146629785.html',
+    'Truman NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/631124240.html',
+    'Akani NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/644777627.html',
+    'UJAP SF NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/753971556.html'
   }
 };
 // Looks up the best link for a team name typed into our app, with
@@ -1621,6 +1656,9 @@ function renderClub(){
     ${logoH(club,76)}<div style="flex:1"><h2>${club.name}</h2><div class="ban-meta" style="color:${club.accent}">${club.sport} &middot; ${data.players.length} Players</div><div class="ban-tag">${club.tagline}</div></div>
     ${isAdmin?`<button id="edit-club-btn" onclick="openEditClub()">&#9999; Edit Club</button>`:''}
   </div>`;
+  // Sync both tab buttons AND tab panels to activeTab
+  document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
+  const activePanel=$('tab-'+activeTab);if(activePanel)activePanel.classList.add('active');
   document.querySelectorAll('.tab-btn').forEach(b=>{const t=b.textContent.toLowerCase(),on=t===activeTab;b.classList.toggle('on',on);b.style.borderColor=on?club.accent:'';b.style.background=on?club.accent:'';b.style.color=on?'#fff':'';});
   renderTabAct();renderTabContent();
 }
@@ -1677,7 +1715,14 @@ function delPlayer(pid){
 }
 
 function renderMatchdays(){
-  const club=getClub(clubId),data=getData(clubId),mds=data?.matchdays||[];
+  const club=getClub(clubId),data=getData(clubId);
+  // Sort by the number embedded in the label (e.g. "Matchday 1" < "Matchday 2"),
+  // falling back to insertion order for labels with no number.
+  const mds=[...(data?.matchdays||[])].sort(function(a,b){
+    var na=parseInt((a.label||'').replace(/\D+/g,''))||0;
+    var nb=parseInt((b.label||'').replace(/\D+/g,''))||0;
+    return na-nb;
+  });
   if(!mds.length){$('matchdays-grid').innerHTML=`<div class="empty-msg">No matchdays yet.</div>`;return;}
   $('matchdays-grid').innerHTML=mds.map(md=>{
     const{fg,bg}=rcol(md.result),key=clubId+'_'+md.id,sc=scorers[key]||{goals:[],assists:[]};
@@ -2593,6 +2638,9 @@ function renderHubFixtures(){
     else if(item.md.status==='finished') finished.push(item);
     else upcoming.push(item);
   });
+  function mdNum(item){ return parseInt((item.md.label||'').replace(/\D+/g,''))||0; }
+  upcoming.sort(function(a,b){ return mdNum(a)-mdNum(b); });
+  finished.sort(function(a,b){ return mdNum(a)-mdNum(b); });
   function renderGroup(label,items,dotColor){
     if(!items.length)return'';
     var h='<div class="fixture-group-label" style="color:'+dotColor+'"><span style="width:7px;height:7px;border-radius:50%;background:'+dotColor+';display:inline-block"></span>'+label+'</div>';
@@ -2604,6 +2652,7 @@ function renderHubFixtures(){
       h+='<div style="display:flex;align-items:center;gap:10px">';
       h+='<img src="'+logoSrc(club)+'" style="width:34px;height:34px;object-fit:contain;border-radius:8px;flex-shrink:0"/>';
       h+='<div style="flex:1;min-width:0">';
+      h+='<div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:'+club.accent+';margin-bottom:3px">'+md.label+'</div>';
       h+='<div style="font-family:Oswald,sans-serif;font-size:16px;font-weight:700;color:#1a1a2e">'+club.short+' <span style="color:#ccc;font-size:12px;font-weight:400">vs</span> '+md.opponent+'</div>';
       if(md.venue) h+='<div style="font-size:11px;color:#aaa;margin-top:2px">&#128205; '+md.venue+'</div>';
       if(md.date) h+='<div style="font-size:11px;color:#aaa">&#128197; '+md.date+(md.kickoffTime?' &middot; '+md.kickoffTime:'')+'</div>';
@@ -2996,8 +3045,9 @@ function doAddCard(){
 // =====================================================================
 // STANDINGS
 // =====================================================================
-function openStandings(cid){
+async function openStandings(cid){
   if(!standings[cid])standings[cid]=[];
+  if(dbConnected){ await loadStandingsFromDB(cid); }
   renderStandingsModal(cid);openModal('m-standings');
 }
 function renderStandingsModal(cid){
@@ -3072,9 +3122,13 @@ function editStandingRow(cid,team){
 }
 async function deleteStandingRow(cid,team){
   showConfirm('Delete Row','Remove '+team+' from the standings?','Yes, Delete',async function(){
-    standings[cid]=(standings[cid]||[]).filter(function(r){return r.team!==team;});
+    if(dbConnected){
+      await dbDeleteStandingRow(cid,team);
+      await loadStandingsFromDB(cid);
+    } else {
+      standings[cid]=(standings[cid]||[]).filter(function(r){return r.team!==team;});
+    }
     sv('uc_standings_v7',standings);
-    if(dbConnected){ await dbDeleteStandingRow(cid,team); }
     writeLog('standings_row_deleted','club',{club_id:cid,details:{team:team}});
     renderStandingsModal(cid);showToast('Removed',team+' removed from standings.');
   });
@@ -3093,14 +3147,29 @@ async function addStandingRow(cid){
     var pb=isNB?(b.w||0)*4-(b.l||0)*3:(b.w||0)*3+(b.d||0);
     return pb-pa;
   });
-  if(dbConnected){ await dbSaveStandingRow(cid,row); }
-  sv('uc_standings_v7',standings);writeLog('standings_updated','club',{club_id:cid,details:{team:team}});
+  if(dbConnected){
+    await dbSaveStandingRow(cid,row);
+    await loadStandingsFromDB(cid);
+    standings[cid]=(standings[cid]||[]).sort(function(a,b){
+      var isNB2=isNetball(cid);
+      var pa=isNB2?(a.w||0)*4-(a.l||0)*3:(a.w||0)*3+(a.d||0);
+      var pb=isNB2?(b.w||0)*4-(b.l||0)*3:(b.w||0)*3+(b.d||0);
+      return pb-pa;
+    });
+  }
+  sv('uc_standings_v7',standings);
+  writeLog('standings_updated','club',{club_id:cid,details:{team:team}});
   renderStandingsModal(cid);showToast('Updated',team+' row saved.');
 }
 function clearStandings(cid){
   showConfirm('Clear Standings','Remove all standings rows?','Yes, Clear',async function(){
-    if(dbConnected){ await dbClearStandings(cid); }
-    standings[cid]=[];sv('uc_standings_v7',standings);renderStandingsModal(cid);
+    if(dbConnected){
+      await dbClearStandings(cid);
+      await loadStandingsFromDB(cid);
+    } else {
+      standings[cid]=[];
+    }
+    sv('uc_standings_v7',standings);renderStandingsModal(cid);
   });
 }
 

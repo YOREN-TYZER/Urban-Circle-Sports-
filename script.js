@@ -1548,7 +1548,9 @@ function refreshView(){const v=document.querySelector('.view.active');if(!v)retu
 // =====================================================================
 // HOME
 // =====================================================================
-function goalIconFor(club){return isNetball(club.id)?'&#9937;':'&#9917;';}
+const GOAL_SVG='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:2px"><path d="M12 2L8 8H3l4 3-1.5 5L12 13l6.5 3L17 11l4-3h-5z" stroke-width="1.8"/></svg>';
+const ASSIST_SVG='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:2px"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+function goalIconFor(club){return GOAL_SVG;}
 function liveGoalScorersH(club,md,wrapClass){
   const sc=scorers[club.id+'_'+md.id];
   if(!sc||!sc.goals||!sc.goals.length)return'';
@@ -1728,8 +1730,8 @@ function renderMatchdays(){
     const{fg,bg}=rcol(md.result),key=clubId+'_'+md.id,sc=scorers[key]||{goals:[],assists:[]};
     const isLive=md.status==='live',open=isRatingOpen(md),dur=getDuration(md);
     let sprev='';
-    if(sc.goals?.length)sprev+=`<div>&#9917; <span>${sc.goals.map(g=>g.name+(g.minute?"'"+g.minute:'')).join(', ')}</span></div>`;
-    if(sc.assists?.length)sprev+=`<div>&#128094; <span>${sc.assists.map(a=>a.name+(a.minute?"'"+a.minute:'')).join(', ')}</span></div>`;
+    if(sc.goals?.length)sprev+=`<div>${GOAL_SVG}<span>${sc.goals.map(g=>g.name+(g.minute?"'"+g.minute:'')).join(', ')}</span></div>`;
+    if(sc.assists?.length)sprev+=`<div>${ASSIST_SVG}<span>${sc.assists.map(a=>a.name+(a.minute?"'"+a.minute:'')).join(', ')}</span></div>`;
     const liveScore=isLive?`<div style="display:flex;align-items:center;gap:8px;margin:6px 0;background:#fff8f8;border-radius:8px;padding:7px 12px;border:1.5px solid rgba(231,76,60,.2)">
       <span style="font-family:'Oswald',sans-serif;font-size:24px;font-weight:700;color:#1a1a2e">${md.homeGoals||0}</span>
       <span style="font-size:12px;color:#ccc;font-weight:700">-</span>
@@ -1832,8 +1834,8 @@ function renderMd(){
       </div>
     </div>
     ${isLive&&sc.goals?.length?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:7px;flex-wrap:wrap">
-      ${sc.goals.map(g=>`<span style="font-size:11px;background:rgba(255,255,255,.08);border-radius:6px;padding:3px 8px;color:#ddd">&#9917; ${g.name}${g.minute?"'"+g.minute:''}</span>`).join('')}
-      ${(sc.assists||[]).map(a=>`<span style="font-size:11px;background:rgba(255,255,255,.08);border-radius:6px;padding:3px 8px;color:#bbb">&#128094; ${a.name}${a.minute?"'"+a.minute:''}</span>`).join('')}
+      ${sc.goals.map(g=>`<span style="font-size:11px;background:rgba(255,255,255,.08);border-radius:6px;padding:3px 8px;color:#ddd">${GOAL_SVG} ${g.name}${g.minute?"'"+g.minute:''}</span>`).join('')}
+      ${(sc.assists||[]).map(a=>`<span style="font-size:11px;background:rgba(255,255,255,.08);border-radius:6px;padding:3px 8px;color:#bbb">${ASSIST_SVG} ${a.name}${a.minute?"'"+a.minute:''}</span>`).join('')}
     </div>`:''}
   </div>`;
   // Rating status bar
@@ -1860,8 +1862,8 @@ function renderMd(){
 }
 
 function evtIconSvg(type){
-  if(type==='goal') return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 7l3 2-1 3.5h-4L9 9z" fill="currentColor" stroke="none"/></svg>';
-  if(type==='assist') return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 19l5-5M5 19h5v-5M19 5l-9 9M19 5v5M19 5h-5"/></svg>';
+  if(type==='goal') return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2L8 8H3l4 3-1.5 5L12 13l6.5 3L17 11l4-3h-5z"/></svg>';
+  if(type==='assist') return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
   if(type==='yellow') return '<svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2" fill="#f1c40f"/></svg>';
   if(type==='red') return '<svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2" fill="#e74c3c"/></svg>';
   return '';
@@ -2039,7 +2041,7 @@ function renderLineup(club,data,md){
       const player=pid?players.find(p=>p.id===pid):null;
       const goals=(sc.goals||[]).filter(g=>g.pid===pid).length;
       const assists=(sc.assists||[]).filter(a=>a.pid===pid).length;
-      let events='';if(goals)events+=(isNB?'&#9937;':'&#9917;').repeat(Math.min(goals,3));if(assists)events+=(events?' ':'')+'A'.repeat(Math.min(assists,2));
+      let events='';if(goals)events+=(isNB?'G':'G').repeat(Math.min(goals,3));if(assists)events+=(events?' ':'')+'A'.repeat(Math.min(assists,2));
       const pRating=pid?mdRating(clubId,md.id,pid):0;
       const pRatingStars=pid&&pRating>0?Array.from({length:5},(_,i)=>`<span class="pp-star ${i<Math.round(pRating)?'on':'off'}">&#9733;</span>`).join(''):'';
       const subObj=(lu.subs||[]).find(s=>(typeof s==='object'?s.out:s)===pid);
@@ -2257,7 +2259,7 @@ function openPlayerInfo(pid){
   var allStats='';
   if(!isNB){
     if(p.goals)allStats+='<span style="background:#e8f5e9;color:#2ecc71;border:1px solid #a5d6a7;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.goals+' Goals</span>';
-    if(p.assists)allStats+='<span style="background:#e3f2fd;color:#1976d2;border:1px solid #90caf9;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.assists+' &#128094; Assists</span>';
+    if(p.assists)allStats+='<span style="background:#e3f2fd;color:#1976d2;border:1px solid #90caf9;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.assists+' '+ASSIST_SVG+' Assists</span>';
     if(p.gp)allStats+='<span style="background:#f3e5f5;color:#7b1fa2;border:1px solid #ce93d8;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.gp+' Games</span>';
     if(p.cleanSheets)allStats+='<span style="background:#e0f7fa;color:#0097a7;border:1px solid #80deea;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.cleanSheets+' CS</span>';
     if(p.yellowCards)allStats+='<span style="background:#fff8e1;color:#f57f17;border:1px solid #ffe082;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px"><span style="display:inline-block;width:9px;height:13px;background:#f1c40f;border-radius:2px;vertical-align:middle;margin-right:3px"></span>'+p.yellowCards+' YC</span>';
@@ -2265,7 +2267,7 @@ function openPlayerInfo(pid){
   } else {
     if(p.goals)allStats+='<span style="background:#e8f5e9;color:#2ecc71;border:1px solid #a5d6a7;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.goals+' Goals</span>';
     if(p.attempts)allStats+='<span style="background:#e3f2fd;color:#1976d2;border:1px solid #90caf9;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.attempts+' Attempts</span>';
-    if(p.assists)allStats+='<span style="background:#f3e5f5;color:#7b1fa2;border:1px solid #ce93d8;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.assists+' &#128094; Assists</span>';
+    if(p.assists)allStats+='<span style="background:#f3e5f5;color:#7b1fa2;border:1px solid #ce93d8;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.assists+' '+ASSIST_SVG+' Assists</span>';
     if(p.intercepts)allStats+='<span style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.intercepts+' Intercepts</span>';
     if(p.gp)allStats+='<span style="background:#fce4ec;color:#880e4f;border:1px solid #f48fb1;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.gp+' Games</span>';
   }
@@ -2522,7 +2524,7 @@ function renderLiveScorerStrip(club, sc, isLive){
   if(!isLive||goals.length===0){strip.style.display='none';return;}
   strip.style.display='';
   var isNB=isNetball(clubId);
-  var goalIcon=isNB?'&#9937;':'&#9917;';
+  var goalIcon=GOAL_SVG;
   var h='<div style="display:flex;flex-wrap:wrap;gap:7px;align-items:center">';
   h+='<span style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:'+(club?club.primary:'#1d2d5a')+';flex-shrink:0">'+goalIcon+' Scorers</span>';
   goals.forEach(function(g){
@@ -2533,10 +2535,10 @@ function renderLiveScorerStrip(club, sc, isLive){
     '</span>';
   });
   if(assists.length){
-    h+='<span style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#888;flex-shrink:0;margin-left:4px">&#128094; Assists</span>';
+    h+='<span style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#888;flex-shrink:0;margin-left:4px">'+ASSIST_SVG+' Assists</span>';
     assists.forEach(function(a){
       h+='<span style="display:inline-flex;align-items:center;gap:5px;background:#f0f0f5;color:#444;border-radius:20px;padding:5px 13px;font-size:12px;font-weight:600;border:1.5px solid #e0e0e8">'+
-        '<span>&#128094;</span>'+
+        '<span>'+ASSIST_SVG+'</span>'+
         '<span>'+a.name+'</span>'+
         (a.minute?'<span style="color:#f39c12;font-size:11px">'+a.minute+"'</span>":'')+
       '</span>';
@@ -2586,7 +2588,7 @@ function renderHubStandings(){
   var html='';
   clubs.forEach(function(club){
     var rows=standings[club.id]||[],isNB=isNetball(club.id);
-    var hdrs=isNB?['Team','P','W','L','GD','Pts']:['Team','P','W','D','L','GD','Pts'];
+    var hdrs=isNB?['Team','P','W','D','L','F','A','GD','Pts','PCT']:['Team','P','W','D','L','GD','Pts'];
     html+='<div class="standings-club-block">';
     html+='<div class="standings-club-hdr" style="background:'+club.primary+'">';
     html+='<img src="'+logoSrc(club)+'" style="width:28px;height:28px;object-fit:contain;border-radius:6px;flex-shrink:0"/>';
@@ -2603,17 +2605,24 @@ function renderHubStandings(){
         return '<th style="color:'+club.accent+';text-align:'+(h==='Team'?'left':'center')+'">'+h+'</th>';
       }).join('')+'</tr></thead><tbody>';
       rows.forEach(function(row,i){
-        var pts=isNB?(row.w||0)*4-(row.l||0)*3:(row.w||0)*3+(row.d||0);
+        var pts=isNB?(row.w||0)*2+(row.d||0):(row.w||0)*3+(row.d||0);
         var gd=(row.gf||0)-(row.ga||0);
         var gdStr=(gd>=0?'+':'')+gd;
+        var gdCol=gd>=0?'#2ecc71':'#e74c3c';
+        var pct=isNB&&(row.p||0)>0?(pts/(row.p||1)/2).toFixed(3):'';
         html+='<tr>';
         html+='<td>'+( i+1)+'. '+teamNameLinkH(club.id,row.team)+'</td>';
         html+='<td>'+(row.p||0)+'</td>';
         html+='<td style="color:#2ecc71;font-weight:700">'+(row.w||0)+'</td>';
-        if(!isNB) html+='<td style="color:#f39c12">'+(row.d||0)+'</td>';
+        html+='<td style="color:#f39c12">'+(row.d||0)+'</td>';
         html+='<td style="color:#e74c3c">'+(row.l||0)+'</td>';
-        html+='<td style="color:'+(gd>=0?'#2ecc71':'#e74c3c')+'">'+gdStr+'</td>';
+        if(isNB){
+          html+='<td>'+(row.gf||0)+'</td>';
+          html+='<td>'+(row.ga||0)+'</td>';
+        }
+        html+='<td style="color:'+gdCol+'">'+gdStr+'</td>';
         html+='<td style="font-family:Oswald,sans-serif;font-size:17px;font-weight:700;color:'+club.accent+'">'+pts+'</td>';
+        if(isNB) html+='<td style="color:#999;font-size:11px">'+pct+'</td>';
         html+='</tr>';
       });
       html+='</tbody></table></div>';
@@ -3054,7 +3063,7 @@ function renderStandingsModal(cid){
   var club=getClub(cid),rows=standings[cid]||[],isNB=isNetball(cid);
   $('standings-title').textContent=(club?club.short:'Club')+' Standings';
   $('standings-club-id').value=cid;
-  var hdrs=isNB?['Team','P','W','L','GF','GA','GD','Pts']:['Team','P','W','D','L','GF','GA','GD','Pts'];
+  var hdrs=isNB?['Team','P','W','D','L','F','A','GD','Pts','PCT']:['Team','P','W','D','L','GF','GA','GD','Pts'];
   var acc=club?club.accent:'#4dc8c8',pri=club?club.primary:'#1d2d5a';
   var tableH='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:'+pri+'">'+
     hdrs.map(function(h){return '<th style="padding:8px 10px;text-align:'+(h==='Team'?'left':'center')+';color:'+acc+';font-size:11px;letter-spacing:.5px;white-space:nowrap">'+h+'</th>';}).join('')+
@@ -3062,21 +3071,23 @@ function renderStandingsModal(cid){
     '</tr></thead><tbody>';
   rows.forEach(function(row,i){
     var bg=i%2===0?'#f8f9fc':'#fff';
-    var pts=isNB?(row.w||0)*4-(row.l||0)*3:(row.w||0)*3+(row.d||0);
+    var pts=isNB?(row.w||0)*2+(row.d||0):(row.w||0)*3+(row.d||0);
     var gd=(row.gf||0)-(row.ga||0);
     var gdStr=(gd>=0?'+':'')+gd;
     var gdCol=gd>=0?'#2ecc71':'#e74c3c';
+    var pct=isNB&&(row.p||0)>0?(pts/((row.p||1)*2)).toFixed(3):'';
     var teamSafe=row.team.replace(/'/g,"\\'");
     tableH+='<tr style="background:'+bg+'">'+
       '<td style="padding:8px 10px;font-weight:700;color:#1a1a2e">'+(i+1)+'. '+teamNameLinkH(cid,row.team)+'</td>'+
       '<td style="text-align:center;padding:8px 6px">'+(row.p||0)+'</td>'+
       '<td style="text-align:center;padding:8px 6px;color:#2ecc71;font-weight:700">'+(row.w||0)+'</td>'+
-      (isNB?'':'<td style="text-align:center;padding:8px 6px;color:#f39c12">'+(row.d||0)+'</td>')+
+      '<td style="text-align:center;padding:8px 6px;color:#f39c12">'+(row.d||0)+'</td>'+
       '<td style="text-align:center;padding:8px 6px;color:#e74c3c">'+(row.l||0)+'</td>'+
       '<td style="text-align:center;padding:8px 6px">'+(row.gf||0)+'</td>'+
       '<td style="text-align:center;padding:8px 6px">'+(row.ga||0)+'</td>'+
       '<td style="text-align:center;padding:8px 6px;color:'+gdCol+'">'+gdStr+'</td>'+
       '<td style="text-align:center;padding:8px 6px;font-family:Oswald,sans-serif;font-size:16px;font-weight:700;color:'+acc+'">'+pts+'</td>'+
+      (isNB?'<td style="text-align:center;padding:8px 6px;color:#999;font-size:11px">'+pct+'</td>':'')+
       (isAdmin?('<td style="text-align:center;padding:4px 6px;white-space:nowrap">'+
         '<button onclick="editStandingRow(\''+cid+'\',\''+teamSafe+'\')" title="Edit row" style="border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px">&#9998;</button>'+
         '<button onclick="deleteStandingRow(\''+cid+'\',\''+teamSafe+'\')" title="Delete row" style="border:none;background:none;cursor:pointer;font-size:14px;padding:2px 4px;color:#e74c3c">&#128465;</button>'+
@@ -3090,14 +3101,14 @@ function renderStandingsModal(cid){
   if(isAdmin){
     formH='<div style="padding-top:14px;border-top:1.5px solid #eee;margin-top:14px">'+
       '<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#999;margin-bottom:10px">Add / Update Team <span style="text-transform:none;font-weight:400;color:#bbb">(same name = overwrite that row)</span></div>'+
-      '<div style="display:grid;grid-template-columns:2fr repeat('+(isNB?5:6)+',1fr);gap:6px">'+
+      '<div style="display:grid;grid-template-columns:2fr repeat(6,1fr);gap:6px">'+
       '<div><label class="flbl">Team Name</label><input id="st-team" class="finp" placeholder="Team name"/></div>'+
       '<div><label class="flbl">P</label><input id="st-p" type="number" class="finp" min="0" placeholder="0"/></div>'+
       '<div><label class="flbl">W</label><input id="st-w" type="number" class="finp" min="0" placeholder="0"/></div>'+
-      (isNB?'':'<div><label class="flbl">D</label><input id="st-d" type="number" class="finp" min="0" placeholder="0"/></div>')+
+      '<div><label class="flbl">D</label><input id="st-d" type="number" class="finp" min="0" placeholder="0"/></div>'+
       '<div><label class="flbl">L</label><input id="st-l" type="number" class="finp" min="0" placeholder="0"/></div>'+
-      '<div><label class="flbl">GF</label><input id="st-gf" type="number" class="finp" min="0" placeholder="0"/></div>'+
-      '<div><label class="flbl">GA</label><input id="st-ga" type="number" class="finp" min="0" placeholder="0"/></div>'+
+      '<div><label class="flbl">'+(isNB?'F':'GF')+'</label><input id="st-gf" type="number" class="finp" min="0" placeholder="0"/></div>'+
+      '<div><label class="flbl">'+(isNB?'A':'GA')+'</label><input id="st-ga" type="number" class="finp" min="0" placeholder="0"/></div>'+
       '</div>'+
       '<div style="display:flex;gap:8px;margin-top:10px">'+
       '<button onclick="addStandingRow(\''+cid+'\')" style="padding:8px 18px;border-radius:8px;border:1.5px solid #2ecc71;color:#2ecc71;background:#fff;font-weight:700;font-size:13px;cursor:pointer">+ Add / Update Row</button>'+
@@ -3137,14 +3148,13 @@ async function addStandingRow(cid){
   var team=($('st-team')||{}).value;if(!team||!team.trim()){showToast('Missing','Enter team name.');return;}
   team=team.trim();
   var isNB=isNetball(cid);
-  var row={team:team,p:parseInt(($('st-p')||{}).value)||0,w:parseInt(($('st-w')||{}).value)||0,l:parseInt(($('st-l')||{}).value)||0,gf:parseInt(($('st-gf')||{}).value)||0,ga:parseInt(($('st-ga')||{}).value)||0};
-  if(!isNB)row.d=parseInt(($('st-d')||{}).value)||0;
+  var row={team:team,p:parseInt(($('st-p')||{}).value)||0,w:parseInt(($('st-w')||{}).value)||0,d:parseInt(($('st-d')||{}).value)||0,l:parseInt(($('st-l')||{}).value)||0,gf:parseInt(($('st-gf')||{}).value)||0,ga:parseInt(($('st-ga')||{}).value)||0};
   if(!standings[cid])standings[cid]=[];
   var idx=standings[cid].findIndex(function(r){return r.team===team;});
   if(idx>=0)standings[cid][idx]=row;else standings[cid].push(row);
   standings[cid].sort(function(a,b){
-    var pa=isNB?(a.w||0)*4-(a.l||0)*3:(a.w||0)*3+(a.d||0);
-    var pb=isNB?(b.w||0)*4-(b.l||0)*3:(b.w||0)*3+(b.d||0);
+    var pa=isNB?(a.w||0)*2+(a.d||0):(a.w||0)*3+(a.d||0);
+    var pb=isNB?(b.w||0)*2+(b.d||0):(b.w||0)*3+(b.d||0);
     return pb-pa;
   });
   if(dbConnected){
@@ -3152,8 +3162,8 @@ async function addStandingRow(cid){
     await loadStandingsFromDB(cid);
     standings[cid]=(standings[cid]||[]).sort(function(a,b){
       var isNB2=isNetball(cid);
-      var pa=isNB2?(a.w||0)*4-(a.l||0)*3:(a.w||0)*3+(a.d||0);
-      var pb=isNB2?(b.w||0)*4-(b.l||0)*3:(b.w||0)*3+(b.d||0);
+      var pa=isNB2?(a.w||0)*2+(a.d||0):(a.w||0)*3+(a.d||0);
+      var pb=isNB2?(b.w||0)*2+(b.d||0):(b.w||0)*3+(b.d||0);
       return pb-pa;
     });
   }

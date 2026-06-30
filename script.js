@@ -3262,20 +3262,38 @@ async function init(){
   await checkDBConnection();
   if(dbConnected){
     await loadClubsFromDB();
-    // Load every club's players/matchdays/headlines up front (not just the
-    // locally-cached copy) so the home page's live status, scores, and
-    // goal scorers are accurate from Supabase the moment the app opens —
-    // on any device, not just the one that made the change.
-    await Promise.all(clubs.map(c=>loadClubDataFromDB(c.id)));
-    await Promise.all(clubs.map(c=>loadStandingsFromDB(c.id)));
-    await loadGalleryFromDB();
-    await loadLiveScorersGlobal();
-    await loadSettingsFromDB();
+    checkScheduledNotifs();
+    // Render immediately with just the club shells (logos, names) so the
+    // page is interactive right away instead of staying blank while every
+    // club's players/matchdays/standings/gallery load in the background.
+    renderHome();
+    reqNotifPerm();
+    startHomeLiveClocks();
+    initRealtime();
+
+    // Load each club's data independently and re-render as each one
+    // finishes, instead of waiting for every club + every data type to
+    // complete before showing anything.
+    clubs.forEach(async function(c){
+      try{
+        await loadClubDataFromDB(c.id);
+        renderHome();
+        refreshView();
+      }catch(e){ console.warn('Club data load failed for',c.id,e); }
+      try{
+        await loadStandingsFromDB(c.id);
+        if(logsHubTab==='standings') renderHubStandings();
+      }catch(e){ console.warn('Standings load failed for',c.id,e); }
+    });
+    loadGalleryFromDB().then(function(){ renderHome(); refreshView(); }).catch(function(e){console.warn('Gallery load failed',e);});
+    loadLiveScorersGlobal().then(renderHome).catch(function(e){console.warn('Live scorers load failed',e);});
+    loadSettingsFromDB().catch(function(e){console.warn('Settings load failed',e);});
+  } else {
+    checkScheduledNotifs();
+    renderHome();
+    reqNotifPerm();
+    startHomeLiveClocks();
+    initRealtime();
   }
-  checkScheduledNotifs();
-  renderHome();
-  reqNotifPerm();
-  startHomeLiveClocks();
-  initRealtime();
 }
 init();

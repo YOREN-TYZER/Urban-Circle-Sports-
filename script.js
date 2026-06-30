@@ -109,6 +109,36 @@ async function loadClubDataFromDB(cid) {
   } catch(e) { console.warn('DB load club data failed:', e.message); }
 }
 
+// Lightweight version for the home screen: skips the players table entirely
+// (which can carry base64 player photos and is by far the heaviest payload).
+// Used so the home page's live-match banner shows up fast; the full player
+// list backfills moments later via loadClubDataFromDB.
+async function loadClubMatchdaysFromDB(cid) {
+  try {
+    const [matchdays, headlines] = await Promise.all([
+      sb('GET', 'matchdays', {eq: {club_id: cid}, select: '*', order: 'created_at'}),
+      sb('GET', 'headlines', {eq: {club_id: cid}, select: '*', order: 'created_at.desc'})
+    ]);
+    const normMds = (matchdays||[]).map(m => ({
+      ...m, id: m.id, _id: m.id,
+      date: m.match_date, kickoffTime: m.kickoff_time,
+      homeGoals: m.home_goals||0, awayGoals: m.away_goals||0,
+      ratingWindowHrs: m.rating_window_hrs||24,
+      ratingOpenOverride: m.rating_open_override,
+      forceClose: m.force_close||false,
+      durationKey: m.duration_key||'90',
+      htPaused: m.ht_paused||false,
+      htPauseStart: m.ht_pause_start||0,
+      htPausedTotal: m.ht_paused_total||0,
+      matchStartedAt: m.match_started_at||0,
+      currentHalf: m.current_half||1,
+      halfStartedAt: m.half_started_at||0
+    }));
+    const existing = clubData[cid] || {players:[], matchdays:[], headlines:[]};
+    clubData[cid] = {players: existing.players||[], matchdays: normMds, headlines: headlines||[]};
+  } catch(e) { console.warn('DB load club matchdays failed:', e.message); }
+}
+
 async function loadMatchdayDataFromDB(cid, mid) {
   try {
     const [scRows, luRows, ratingRows, cmtRows] = await Promise.all([
@@ -440,10 +470,12 @@ async function dbGetAdmins() {
 // Flag: are we connected to DB?
 let dbConnected = false;
 async function checkDBConnection() {
+  // Kept for any other callers, but init() no longer uses this separately —
+  // it folds the connectivity check into the first real data fetch (clubs)
+  // to avoid paying for two sequential network round-trips on startup.
   try {
     await sb('GET', 'clubs', {select: 'id', limit: 1});
     dbConnected = true;
-    console.log('Supabase connected');
   } catch(e) {
     dbConnected = false;
     console.warn('Supabase not available, using localStorage');
@@ -3258,10 +3290,13 @@ function clearStandings(cid){
 // INIT
 // =====================================================================
 async function init(){
-  // Silent DB connection — no loading toast shown to users
-  await checkDBConnection();
+  // Skip the separate "is Supabase reachable" ping — go straight to the
+  // real clubs fetch and treat its success/failure as the connectivity
+  // signal. This removes one full network round-trip from the critical
+  // path before anything can render.
+  const ok = await loadClubsFromDB();
+  dbConnected = ok;
   if(dbConnected){
-    await loadClubsFromDB();
     checkScheduledNotifs();
     // Render immediately with just the club shells (logos, names) so the
     // page is interactive right away instead of staying blank while every
@@ -3273,8 +3308,15 @@ async function init(){
 
     // Load each club's data independently and re-render as each one
     // finishes, instead of waiting for every club + every data type to
-    // complete before showing anything.
+    // complete before showing anything. Matchdays load first (light,
+    // no player photos) so the home page's live-match banner appears
+    // almost instantly; full player rosters (with photos) backfill after.
     clubs.forEach(async function(c){
+      try{
+        await loadClubMatchdaysFromDB(c.id);
+        renderHome();
+        refreshView();
+      }catch(e){ console.warn('Club matchdays load failed for',c.id,e); }
       try{
         await loadClubDataFromDB(c.id);
         renderHome();

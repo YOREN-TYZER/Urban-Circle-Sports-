@@ -2272,14 +2272,37 @@ function clearLogs(){showConfirm('Clear All Logs','Delete all activity logs?','Y
 // =====================================================================
 // PLAYER INFO MODAL
 // =====================================================================
-function openPlayerInfo(pid, cid){
+function openPhotoViewer(src,name,accent){
+  // Remove any existing viewer
+  var old=$('photo-viewer-overlay');if(old)old.remove();
+  var ov=document.createElement('div');
+  ov.id='photo-viewer-overlay';
+  ov.style.cssText='position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;animation:fadeInOv .18s ease';
+  ov.innerHTML=`
+    <style>@keyframes fadeInOv{from{opacity:0}to{opacity:1}}@keyframes popIn{from{transform:scale(.88);opacity:0}to{transform:scale(1);opacity:1}}</style>
+    <button onclick="document.getElementById('photo-viewer-overlay').remove()" style="position:absolute;top:18px;right:18px;background:rgba(255,255,255,.12);border:none;color:#fff;font-size:26px;width:44px;height:44px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1;z-index:2">&times;</button>
+    <div style="position:absolute;top:18px;left:0;right:0;text-align:center;color:#fff;font-family:'Oswald',sans-serif;font-size:16px;font-weight:600;letter-spacing:.5px;opacity:.85">${name}</div>
+    <img src="${src}" alt="${name}" style="max-width:92vw;max-height:80vh;border-radius:16px;object-fit:contain;box-shadow:0 8px 40px rgba(0,0,0,.7);animation:popIn .22s ease;border:3px solid ${accent||'rgba(255,255,255,.15)'}"/>
+    <div style="margin-top:18px;color:rgba(255,255,255,.35);font-size:12px">Tap anywhere to close</div>
+  `;
+  // Tap backdrop to close
+  ov.addEventListener('click',function(e){if(e.target===ov||e.target.tagName==='DIV')ov.remove();});
+  document.body.appendChild(ov);
+}
+
+function openPlayerInfo(pid,cid){
   if(cid) clubId=cid;
   viewingPid=pid;piNewPhoto=undefined;piNewPhotoFile=undefined;
   const club=getClub(clubId),data=getData(clubId),p=data.players.find(pl=>pl.id===pid);if(!p)return;
   const r=overallRating(clubId,pid),isNB=isNetball(clubId);
   $('pi-modal-title').textContent=p.shirtname||p.name;
   $('pi-header-block').style.background=club.primary;
-  $('pi-header-block').innerHTML=`${avH(p.name,p.img,72,club.primary,club.accent)}
+  const ini=p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const avatarClick=p.img?`onclick="openPhotoViewer('${p.img.replace(/'/g,"\\'")}','${(p.name).replace(/'/g,"\\'")}','${club.accent}')" style="cursor:zoom-in"`:'';
+  const avatarHTML=p.img
+    ?`<div class="av" ${avatarClick} style="width:80px;height:80px;border-color:${club.accent};background:${club.primary};flex-shrink:0"><img src="${p.img}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%"/></div>`
+    :`<div class="av" style="width:80px;height:80px;border-color:${club.accent};background:${club.primary};color:${club.accent};font-family:'Oswald',sans-serif;font-size:26px;font-weight:700;flex-shrink:0">${ini}</div>`;
+  $('pi-header-block').innerHTML=`${avatarHTML}
     <div><div style="font-family:'Oswald',sans-serif;font-size:20px;color:#fff">${p.name}</div>
       <div style="font-size:13px;font-weight:700;color:${club.accent};margin:3px 0">#${p.num} - ${p.pos}</div>
       ${p.nationality?`<div style="font-size:12px;color:rgba(255,255,255,.6)">${p.nationality}${p.hometown?' - '+p.hometown:''}</div>`:''}

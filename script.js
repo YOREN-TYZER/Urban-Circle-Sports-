@@ -2308,9 +2308,8 @@ function openPlayerInfo(pid,cid){
   $('pi-modal-title').textContent=p.shirtname||p.name;
   $('pi-header-block').style.background=club.primary;
   const ini=p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-  const avatarClick=p.img?`onclick="openPhotoViewer('${p.img.replace(/'/g,"\\'")}','${(p.name).replace(/'/g,"\\'")}','${club.accent}')" style="cursor:zoom-in"`:'';
   const avatarHTML=p.img
-    ?`<div class="av" ${avatarClick} style="width:80px;height:80px;border-color:${club.accent};background:${club.primary};flex-shrink:0"><img src="${p.img}" alt="${p.name}" style="width:100%;height:100%;object-fit:cover;border-radius:50%"/></div>`
+    ?`<div class="av" style="width:80px;height:80px;border-color:${club.accent};background:${club.primary};flex-shrink:0"><img src="${p.img}" alt="${p.name}" onclick="openPhotoViewer('${p.img.replace(/'/g,"\\'")}','${p.name.replace(/'/g,"\\'")}','${club.accent}')" style="width:100%;height:100%;object-fit:cover;border-radius:50%;cursor:zoom-in"/></div>`
     :`<div class="av" style="width:80px;height:80px;border-color:${club.accent};background:${club.primary};color:${club.accent};font-family:'Oswald',sans-serif;font-size:26px;font-weight:700;flex-shrink:0">${ini}</div>`;
   $('pi-header-block').innerHTML=`${avatarHTML}
     <div><div style="font-family:'Oswald',sans-serif;font-size:20px;color:#fff">${p.name}</div>

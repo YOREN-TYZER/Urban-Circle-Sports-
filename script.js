@@ -2381,7 +2381,7 @@ async function savePlayerEdit(){
       p.img=null;
     } else {
       try{
-        const compressed=await compressImage(piNewPhoto,400,400,0.75);
+        const compressed=await compressImage(piNewPhoto,1200,1200,0.92);
         p.img=compressed;
       } catch(e){
         p.img=piNewPhoto;
@@ -2538,7 +2538,7 @@ async function savePp(){
   } else {
     // Compress image to max 400x400 JPEG at 75% quality before saving as base64
     try{
-      const compressed=await compressImage(newPicData,400,400,0.75);
+      const compressed=await compressImage(newPicData,1200,1200,0.92);
       p.img=compressed;
     } catch(e){
       p.img=newPicData; // fallback: use original if compression fails

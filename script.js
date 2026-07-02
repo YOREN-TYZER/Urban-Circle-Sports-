@@ -1582,7 +1582,7 @@ function refreshView(){const v=document.querySelector('.view.active');if(!v)retu
 // HOME
 // =====================================================================
 const GOAL_SVG='⚽';
-const ASSIST_SVG='<svg viewBox="0 0 100 70" width="16" height="11" style="display:inline-block;vertical-align:middle;margin-right:2px"><path d="M15 52 C10 52 5 48 5 40 C5 28 10 20 20 16 C24 14 28 14 30 15 L36 18 C40 12 48 8 58 8 C72 8 82 16 86 28 L90 26 C93 24 96 26 96 30 L96 42 C96 46 93 48 90 46 L86 44 C82 54 72 62 58 62 C50 62 43 58 38 52 L30 55 C26 57 20 56 15 52 Z M20 40 C20 44 23 46 27 44 L34 40 L28 28 L22 32 C20 34 20 37 20 40 Z" fill="currentColor"/><rect x="6" y="56" width="8" height="10" rx="2" fill="currentColor"/><rect x="18" y="56" width="8" height="10" rx="2" fill="currentColor"/><rect x="52" y="60" width="8" height="8" rx="2" fill="currentColor"/><rect x="64" y="60" width="8" height="8" rx="2" fill="currentColor"/></svg>';
+const ASSIST_SVG='<svg viewBox="0 0 24 18" width="18" height="13" style="display:inline-block;vertical-align:middle;margin-right:2px" fill="currentColor"><path d="M2 13 C2 11 3 9 5 8 L9 6 C10 5 11 4 13 4 C16 4 19 6 20 9 L21 9 C22 9 23 10 23 11 L23 13 C23 14 22 15 21 15 L4 15 C3 15 2 14 2 13 Z"/><path d="M7 12 L10 7 L12 8 L9 13 Z" fill="white" opacity="0.7"/><path d="M10 12 L13 7 L15 8 L12 13 Z" fill="white" opacity="0.5"/><rect x="3" y="15" width="4" height="3" rx="1"/><rect x="8" y="15" width="4" height="3" rx="1"/><rect x="13" y="15" width="4" height="3" rx="1"/></svg>';
 function goalIconFor(club){return GOAL_SVG;}
 function liveGoalScorersH(club,md,wrapClass){
   const sc=scorers[club.id+'_'+md.id];
@@ -2077,7 +2077,9 @@ function renderLineup(club,data,md){
       const player=pid?players.find(p=>p.id===pid):null;
       const goals=(sc.goals||[]).filter(g=>g.pid===pid).length;
       const assists=(sc.assists||[]).filter(a=>a.pid===pid).length;
-      let events='';if(goals)events+=(isNB?'G':'G').repeat(Math.min(goals,3));if(assists)events+=(events?' ':'')+'A'.repeat(Math.min(assists,2));
+      let events='';
+      if(goals) events+=('⚽').repeat(Math.min(goals,3));
+      if(assists) events+=(events?' ':'')+('👟').repeat(Math.min(assists,2));
       const pRating=pid?mdRating(clubId,md.id,pid):0;
       const pRatingStars=pid&&pRating>0?Array.from({length:5},(_,i)=>`<span class="pp-star ${i<Math.round(pRating)?'on':'off'}">&#9733;</span>`).join(''):'';
       const subObj=(lu.subs||[]).find(s=>(typeof s==='object'?s.out:s)===pid);

@@ -1582,7 +1582,7 @@ function refreshView(){const v=document.querySelector('.view.active');if(!v)retu
 // HOME
 // =====================================================================
 const GOAL_SVG='⚽';
-const ASSIST_SVG='<svg viewBox="0 0 24 18" width="18" height="13" style="display:inline-block;vertical-align:middle;margin-right:2px" fill="currentColor"><path d="M2 13 C2 11 3 9 5 8 L9 6 C10 5 11 4 13 4 C16 4 19 6 20 9 L21 9 C22 9 23 10 23 11 L23 13 C23 14 22 15 21 15 L4 15 C3 15 2 14 2 13 Z"/><path d="M7 12 L10 7 L12 8 L9 13 Z" fill="white" opacity="0.7"/><path d="M10 12 L13 7 L15 8 L12 13 Z" fill="white" opacity="0.5"/><rect x="3" y="15" width="4" height="3" rx="1"/><rect x="8" y="15" width="4" height="3" rx="1"/><rect x="13" y="15" width="4" height="3" rx="1"/></svg>';
+const ASSIST_SVG='<svg viewBox="0 0 20 16" width="16" height="13" style="display:inline-block;vertical-align:middle;margin-right:2px" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13 C2 6 8 3 14 5"/><path d="M11 3 L15 5 L12 8"/></svg>';
 function goalIconFor(club){return GOAL_SVG;}
 function liveGoalScorersH(club,md,wrapClass){
   const sc=scorers[club.id+'_'+md.id];
@@ -1720,12 +1720,17 @@ function renderPlayers(){
 }
 function pcH(p,club){
   const r=overallRating(clubId,p.id),hasR=r>0;
-  const photoClick=p.img
-    ?`onclick="event.stopPropagation();openPhotoViewer('${p.img.replace(/'/g,"\\'")}','${p.name.replace(/'/g,"\\'")}','${club.accent}')" style="cursor:zoom-in;position:relative"`
-    :`style="position:relative"`;
+  // Build avatar: if player has a photo, the img itself is tappable to view fullscreen.
+  // The wrapper div has no click so the card click (openPlayerInfo) fires normally.
+  const imgTag=p.img
+    ?`<img src="${p.img}" alt="${p.name}" onclick="event.stopPropagation();openPhotoViewer('${p.img.replace(/'/g,"\\'")}','${p.name.replace(/'/g,"\\'")}','${club.accent}')" style="width:100%;height:100%;object-fit:cover;border-radius:50%;cursor:zoom-in"/>`
+    :``;
+  const ini=p.name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  const fs=Math.round(66*.33);
+  const avatarHTML=`<div class="av" style="width:66px;height:66px;border-color:${club.accent};background:${club.primary};color:${club.accent};font-family:'Oswald',sans-serif;font-size:${fs}px;font-weight:700">${imgTag||(p.img?'':ini)}</div>`;
   return`<div class="pc ${hasR?'rated':''}" id="pc_${p.id}" onclick="openPlayerInfo('${p.id}')">
     <div class="pc-head" style="background:${club.primary}">
-      <div ${photoClick}>${avH(p.name,p.img,66,club.primary,club.accent)}
+      <div style="position:relative">${avatarHTML}
         ${isAdmin?`<button class="pc-cam-btn" style="background:${club.accent}" onclick="event.stopPropagation();openPp('${p.id}')">&#128247;</button>`:''}
       </div>
       <div class="pc-name">${p.name}</div>
@@ -2078,8 +2083,8 @@ function renderLineup(club,data,md){
       const goals=(sc.goals||[]).filter(g=>g.pid===pid).length;
       const assists=(sc.assists||[]).filter(a=>a.pid===pid).length;
       let events='';
-      if(goals) events+=('⚽').repeat(Math.min(goals,3));
-      if(assists) events+=(events?' ':'')+('👟').repeat(Math.min(assists,2));
+      for(let g=0;g<Math.min(goals,3);g++) events+='⚽';
+      if(assists) for(let a=0;a<Math.min(assists,2);a++) events+='🅐';
       const pRating=pid?mdRating(clubId,md.id,pid):0;
       const pRatingStars=pid&&pRating>0?Array.from({length:5},(_,i)=>`<span class="pp-star ${i<Math.round(pRating)?'on':'off'}">&#9733;</span>`).join(''):'';
       const subObj=(lu.subs||[]).find(s=>(typeof s==='object'?s.out:s)===pid);

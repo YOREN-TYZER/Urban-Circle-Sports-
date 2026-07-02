@@ -1582,7 +1582,7 @@ function refreshView(){const v=document.querySelector('.view.active');if(!v)retu
 // HOME
 // =====================================================================
 const GOAL_SVG='⚽';
-const ASSIST_SVG='<svg viewBox="0 0 20 16" width="16" height="13" style="display:inline-block;vertical-align:middle;margin-right:2px" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 13 C2 6 8 3 14 5"/><path d="M11 3 L15 5 L12 8"/></svg>';
+const ASSIST_SVG='🎯';
 function goalIconFor(club){return GOAL_SVG;}
 function liveGoalScorersH(club,md,wrapClass){
   const sc=scorers[club.id+'_'+md.id];
@@ -1904,7 +1904,7 @@ function renderMd(){
 
 function evtIconSvg(type){
   if(type==='goal') return '<span style="font-size:15px;line-height:1">⚽</span>';
-  if(type==='assist') return ASSIST_SVG;
+  if(type==='assist') return '<span style="font-size:15px;line-height:1">🎯</span>';
   if(type==='yellow') return '<svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2" fill="#f1c40f"/></svg>';
   if(type==='red') return '<svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2" fill="#e74c3c"/></svg>';
   return '';
@@ -2084,7 +2084,7 @@ function renderLineup(club,data,md){
       const assists=(sc.assists||[]).filter(a=>a.pid===pid).length;
       let events='';
       for(let g=0;g<Math.min(goals,3);g++) events+='⚽';
-      if(assists) for(let a=0;a<Math.min(assists,2);a++) events+='🅐';
+      if(assists) for(let a=0;a<Math.min(assists,2);a++) events+='🎯';
       const pRating=pid?mdRating(clubId,md.id,pid):0;
       const pRatingStars=pid&&pRating>0?Array.from({length:5},(_,i)=>`<span class="pp-star ${i<Math.round(pRating)?'on':'off'}">&#9733;</span>`).join(''):'';
       const subObj=(lu.subs||[]).find(s=>(typeof s==='object'?s.out:s)===pid);

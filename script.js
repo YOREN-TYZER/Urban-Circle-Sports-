@@ -1581,8 +1581,8 @@ function refreshView(){const v=document.querySelector('.view.active');if(!v)retu
 // =====================================================================
 // HOME
 // =====================================================================
-const GOAL_SVG='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:2px"><path d="M12 2L8 8H3l4 3-1.5 5L12 13l6.5 3L17 11l4-3h-5z" stroke-width="1.8"/></svg>';
-const ASSIST_SVG='<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:middle;margin-right:2px"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+const GOAL_SVG='⚽';
+const ASSIST_SVG='<svg viewBox="0 0 100 70" width="16" height="11" style="display:inline-block;vertical-align:middle;margin-right:2px"><path d="M15 52 C10 52 5 48 5 40 C5 28 10 20 20 16 C24 14 28 14 30 15 L36 18 C40 12 48 8 58 8 C72 8 82 16 86 28 L90 26 C93 24 96 26 96 30 L96 42 C96 46 93 48 90 46 L86 44 C82 54 72 62 58 62 C50 62 43 58 38 52 L30 55 C26 57 20 56 15 52 Z M20 40 C20 44 23 46 27 44 L34 40 L28 28 L22 32 C20 34 20 37 20 40 Z" fill="currentColor"/><rect x="6" y="56" width="8" height="10" rx="2" fill="currentColor"/><rect x="18" y="56" width="8" height="10" rx="2" fill="currentColor"/><rect x="52" y="60" width="8" height="8" rx="2" fill="currentColor"/><rect x="64" y="60" width="8" height="8" rx="2" fill="currentColor"/></svg>';
 function goalIconFor(club){return GOAL_SVG;}
 function liveGoalScorersH(club,md,wrapClass){
   const sc=scorers[club.id+'_'+md.id];
@@ -1895,8 +1895,8 @@ function renderMd(){
 }
 
 function evtIconSvg(type){
-  if(type==='goal') return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2L8 8H3l4 3-1.5 5L12 13l6.5 3L17 11l4-3h-5z"/></svg>';
-  if(type==='assist') return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M13 6l6 6-6 6"/></svg>';
+  if(type==='goal') return '<span style="font-size:15px;line-height:1">⚽</span>';
+  if(type==='assist') return ASSIST_SVG;
   if(type==='yellow') return '<svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2" fill="#f1c40f"/></svg>';
   if(type==='red') return '<svg viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="2" fill="#e74c3c"/></svg>';
   return '';
@@ -2272,7 +2272,8 @@ function clearLogs(){showConfirm('Clear All Logs','Delete all activity logs?','Y
 // =====================================================================
 // PLAYER INFO MODAL
 // =====================================================================
-function openPlayerInfo(pid){
+function openPlayerInfo(pid, cid){
+  if(cid) clubId=cid;
   viewingPid=pid;piNewPhoto=undefined;piNewPhotoFile=undefined;
   const club=getClub(clubId),data=getData(clubId),p=data.players.find(pl=>pl.id===pid);if(!p)return;
   const r=overallRating(clubId,pid),isNB=isNetball(clubId);
@@ -2796,8 +2797,8 @@ function renderHubFixtures(){
 function renderHubStats(){
   var panel=$('lh-stats');if(!panel)return;
   var statGroups=[
-    {key:'goals',label:'Top Scorers',color:'#2ecc71',icon:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/></svg>'},
-    {key:'assists',label:'Top Assists',color:'#3d7dd4',icon:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 19l5-5M5 19h5v-5"/><path d="M19 5l-9 9"/></svg>'},
+    {key:'goals',label:'Top Scorers',color:'#2ecc71',icon:'<span style="font-size:15px">⚽</span>'},
+    {key:'assists',label:'Top Assists',color:'#3d7dd4',icon:ASSIST_SVG},
     {key:'yellowCards',label:'Yellow Cards',color:'#f1c40f',icon:'<svg viewBox="0 0 24 24" width="14" height="16"><rect x="5" y="2" width="14" height="20" rx="2" fill="#f1c40f"/></svg>'},
     {key:'redCards',label:'Red Cards',color:'#e74c3c',icon:'<svg viewBox="0 0 24 24" width="14" height="16"><rect x="5" y="2" width="14" height="20" rx="2" fill="#e74c3c"/></svg>'},
     {key:'cleanSheets',label:'Clean Sheets',color:'#4dc8c8',icon:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#4dc8c8" stroke-width="2"><path d="M20 7L9 18l-5-5"/></svg>'},
@@ -2818,7 +2819,7 @@ function renderHubStats(){
     top.forEach(function(item,i){
       var rClass=i===0?'r1':i===1?'r2':i===2?'r3':'rN';
       var rankLabel=i===0?'1':i===1?'2':i===2?'3':(i+1)+'';
-      html+='<div class="stat-rank-item">';
+      html+='<div class="stat-rank-item" onclick="openPlayerInfo(\''+item.player.id+'\',\''+item.club.id+'\')" style="cursor:pointer">';
       html+='<div class="stat-rank-n '+rClass+'">'+rankLabel+'</div>';
       html+=avH(item.player.name,item.player.img,40,item.club.primary,item.club.accent);
       html+='<div class="stat-rank-info"><div class="stat-rank-name">'+item.player.name+'</div><div class="stat-rank-sub">'+item.player.pos+' &middot; <span style="color:'+item.club.accent+';font-weight:700">'+item.club.short+'</span></div></div>';
@@ -2951,7 +2952,7 @@ function renderLeaderboardHub(filter){
   var html='<div class="lb-list">';
   allPlayers.forEach(function(item,i){
     var club=item.club,p=item.player,r=item.rating;
-    html+='<div class="lb-row-card'+(i===0?' lb-row-first':'')+'">';
+    html+='<div class="lb-row-card'+(i===0?' lb-row-first':'')+'" onclick="openPlayerInfo(\''+p.id+'\',\''+club.id+'\')" style="cursor:pointer">';
     html+='<div class="lb-rank-cell">'+(i<3?medalSvg(i):'<span class="lb-rank-num">'+(i+1)+'</span>')+'</div>';
     html+=avH(p.name,p.img,42,club.primary,club.accent);
     html+='<div class="lb-info"><div class="lb-pname">'+p.name+'</div>';

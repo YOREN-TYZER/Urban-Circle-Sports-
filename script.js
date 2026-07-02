@@ -1720,9 +1720,12 @@ function renderPlayers(){
 }
 function pcH(p,club){
   const r=overallRating(clubId,p.id),hasR=r>0;
+  const photoClick=p.img
+    ?`onclick="event.stopPropagation();openPhotoViewer('${p.img.replace(/'/g,"\\'")}','${p.name.replace(/'/g,"\\'")}','${club.accent}')" style="cursor:zoom-in;position:relative"`
+    :`style="position:relative"`;
   return`<div class="pc ${hasR?'rated':''}" id="pc_${p.id}" onclick="openPlayerInfo('${p.id}')">
     <div class="pc-head" style="background:${club.primary}">
-      <div style="position:relative">${avH(p.name,p.img,66,club.primary,club.accent)}
+      <div ${photoClick}>${avH(p.name,p.img,66,club.primary,club.accent)}
         ${isAdmin?`<button class="pc-cam-btn" style="background:${club.accent}" onclick="event.stopPropagation();openPp('${p.id}')">&#128247;</button>`:''}
       </div>
       <div class="pc-name">${p.name}</div>

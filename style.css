@@ -762,7 +762,7 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
   padding:10px 16px 12px;
   font-size:12px;
   font-weight:700;
-  color:rgba(255,255,255,.5);
+  color:rgba(255,255,255,.62);
   cursor:pointer;
   border:none;
   background:none;
@@ -770,7 +770,11 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
   transition:all .15s;
   white-space:nowrap;
   letter-spacing:.3px;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:rgba(255,255,255,.25);
+  user-select:none;
 }
+.hub-tab:active{color:#fff;opacity:.75}
 .hub-tab:hover{color:rgba(255,255,255,.8)}
 .hub-tab.active{color:#fff;border-bottom-color:#fff}
 .hub-content{

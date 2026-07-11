@@ -810,7 +810,7 @@ function toggleHomeStrip(key){
 }
 function applyHomeStripVisibility(){
   const galBody=$('home-gallery-preview'), galToggle=$('gallery-strip-toggle');
-  if(galBody) galBody.style.display = homeStripHidden.gallery ? 'none' : '';
+  if(galBody) galBody.style.display = homeStripHidden.gallery ? 'none' : 'grid';
   if(galToggle) galToggle.textContent = homeStripHidden.gallery ? 'Show' : 'Hide';
   const newsBody=$('home-news-preview'), newsToggle=$('news-strip-toggle');
   if(newsBody) newsBody.style.display = homeStripHidden.news ? 'none' : '';
@@ -1915,6 +1915,7 @@ function delPlayer(pid){
 // =====================================================================
 // TECHNICAL TEAM (STAFF)
 // =====================================================================
+let editingStaffId=null, staffNewPhoto, staffNewPhotoFile;
 function renderStaff(){
   const club=getClub(clubId),list=techTeams[clubId]||[];
   if(!list.length){$('staff-grid').innerHTML=`<div class="empty-msg">No technical team members added yet.</div>`;return;}
@@ -1922,9 +1923,12 @@ function renderStaff(){
 }
 function staffCardH(s,club){
   const ini=(s.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
-  return`<div class="pc" id="stf_${s.id}">
+  const imgTag=s.photo
+    ?`<img src="${s.photo}" alt="${s.name}" onclick="event.stopPropagation();openPhotoViewer('${s.photo.replace(/'/g,"\\'")}','${s.name.replace(/'/g,"\\'")}','${club.accent}')" style="width:100%;height:100%;object-fit:cover;border-radius:50%;cursor:zoom-in"/>`
+    :``;
+  return`<div class="pc" id="stf_${s.id}" ${isAdmin?`onclick="openEditStaff('${s.id}')"`:''}>
     <div class="pc-head" style="background:${club.primary}">
-      <div class="av" style="width:66px;height:66px;border-color:${club.accent};background:${club.primary};color:${club.accent};font-family:'Oswald',sans-serif;font-size:22px;font-weight:700">${ini}</div>
+      <div class="av" style="width:66px;height:66px;border-color:${club.accent};background:${club.primary};color:${club.accent};font-family:'Oswald',sans-serif;font-size:22px;font-weight:700">${imgTag||ini}</div>
       <div class="pc-name">${s.name}</div>
       <div class="pc-meta" style="color:${club.accent}">${s.role||'Staff'}</div>
     </div>
@@ -1933,17 +1937,63 @@ function staffCardH(s,club){
     </div>`:''}
   </div>`;
 }
-function openAddStaff(){$('ns-name').value='';$('ns-role').value='';openModal('m-add-staff');}
-async function doAddStaff(){
+function openAddStaff(){
+  editingStaffId=null;staffNewPhoto=undefined;staffNewPhotoFile=undefined;
+  $('ns-modal-title').textContent='Add Staff Member';$('ns-save-btn').textContent='Add Staff';
+  $('ns-name').value='';$('ns-role').value='';
+  $('ns-pre-wrap').innerHTML=`<div class="pp-pre-av">?</div>`;$('rm-ns-btn').style.display='none';
+  openModal('m-add-staff');
+}
+function openEditStaff(sid){
+  const s=(techTeams[clubId]||[]).find(x=>x.id===sid);if(!s)return;
+  editingStaffId=sid;staffNewPhoto=undefined;staffNewPhotoFile=undefined;
+  $('ns-modal-title').textContent='Edit Staff Member';$('ns-save-btn').textContent='Save Changes';
+  $('ns-name').value=s.name;$('ns-role').value=s.role||'';
+  const ini=(s.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  $('ns-pre-wrap').innerHTML=s.photo?`<img class="pp-pre" src="${s.photo}"/>`:`<div class="pp-pre-av">${ini}</div>`;
+  $('rm-ns-btn').style.display=s.photo?'':'none';
+  openModal('m-add-staff');
+}
+function onStaffPhotoUpload(e){
+  const file=e.target.files[0];if(!file)return;
+  staffNewPhotoFile=file;
+  const r=new FileReader();
+  r.onload=ev=>{
+    staffNewPhoto=ev.target.result;
+    $('ns-pre-wrap').innerHTML=`<img class="pp-pre" src="${staffNewPhoto}"/>`;
+    $('rm-ns-btn').style.display='';
+  };
+  r.readAsDataURL(file);
+}
+function rmStaffPhoto(){
+  staffNewPhoto=null;staffNewPhotoFile=undefined;
+  $('ns-pre-wrap').innerHTML=`<div class="pp-pre-av">?</div>`;
+  $('rm-ns-btn').style.display='none';
+}
+async function doSaveStaff(){
   const name=$('ns-name').value.trim(),role=$('ns-role').value.trim();
   if(!name)return;
   if(!techTeams[clubId])techTeams[clubId]=[];
-  techTeams[clubId].push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),name,role});
+  if(editingStaffId){
+    const s=techTeams[clubId].find(x=>x.id===editingStaffId);
+    if(s){
+      s.name=name;s.role=role;
+      if(staffNewPhoto!==undefined){
+        // Full quality — use raw original, no compression, same as player photos
+        s.photo = staffNewPhoto===null ? null : (staffNewPhotoFile ? await readFileAsDataURL(staffNewPhotoFile) : staffNewPhoto);
+      }
+    }
+    writeLog('staff_updated','staff',{details:{name,role}});
+  } else {
+    let photo=null;
+    if(staffNewPhoto){ photo = staffNewPhotoFile ? await readFileAsDataURL(staffNewPhotoFile) : staffNewPhoto; }
+    techTeams[clubId].push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),name,role,photo});
+    writeLog('staff_added','staff',{details:{name,role}});
+  }
   sv('uc_techteam_v7',techTeams);
   if(dbConnected){ await saveTechTeamToDB(clubId); }
-  writeLog('staff_added','staff',{details:{name,role}});
   cm('m-add-staff');renderStaff();renderTechTeamPanel(getClub(clubId));
-  showToast('Staff Added',`${name} added to the technical team.`);
+  showToast(editingStaffId?'Staff Updated':'Staff Added',`${name} saved to the technical team.`);
 }
 async function delStaff(id){
   showConfirm('Remove Staff Member','Remove this person from the technical team?','Yes, Remove',async()=>{
@@ -1968,10 +2018,19 @@ function renderTechTeamPanel(club){
       <div class="panel-title" style="color:${club.accent}">Technical Team</div>
     </div>
     <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:10px">
-      ${list.map(s=>`<div style="display:flex;align-items:center;gap:8px;background:#fafafa;border:1.5px solid var(--border);border-radius:10px;padding:7px 12px">
-        <span style="font-family:'Oswald',sans-serif;font-weight:700;color:#1a1a2e;font-size:13px">${s.name}</span>
-        <span style="font-size:11px;color:#999">${s.role||'Staff'}</span>
-      </div>`).join('')}
+      ${list.map(s=>{
+        const ini=(s.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+        const avatar=s.photo
+          ?`<img src="${s.photo}" alt="${s.name}" onclick="openPhotoViewer('${s.photo.replace(/'/g,"\\'")}','${s.name.replace(/'/g,"\\'")}','${club.accent}')" style="width:30px;height:30px;border-radius:50%;object-fit:cover;cursor:zoom-in;flex-shrink:0"/>`
+          :`<div style="width:30px;height:30px;border-radius:50%;background:${club.primary};color:${club.accent};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0">${ini}</div>`;
+        return `<div style="display:flex;align-items:center;gap:8px;background:#fafafa;border:1.5px solid var(--border);border-radius:10px;padding:6px 12px 6px 6px">
+        ${avatar}
+        <div>
+          <div style="font-family:'Oswald',sans-serif;font-weight:700;color:#1a1a2e;font-size:13px;line-height:1.2">${s.name}</div>
+          <div style="font-size:11px;color:#999">${s.role||'Staff'}</div>
+        </div>
+      </div>`;
+      }).join('')}
     </div>
   </div>`;
 }
@@ -3411,11 +3470,16 @@ function lightboxNav(dir){
 }
 
 function setGalleryFilter(cid){
-  galleryFilter = cid;
-  document.querySelectorAll('#gal-filter-tabs .hub-tab').forEach(b => {
-    b.classList.toggle('active', b.dataset.club === cid);
-  });
-  renderGallery();
+  try{
+    galleryFilter = cid;
+    document.querySelectorAll('#gal-filter-tabs .hub-tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.club === cid);
+    });
+    renderGallery();
+  }catch(e){
+    console.error('setGalleryFilter error:', e);
+    showToast('Filter Error', e.message || 'Could not filter photos.');
+  }
 }
 
 function openAddPhoto(){

@@ -501,10 +501,18 @@
 
 <!-- Add Staff (Technical Team) Modal -->
 <div id="m-add-staff" class="modal"><div class="mbox">
-  <div class="mhead"><h3>Add Staff Member</h3><button class="mclose" onclick="cm('m-add-staff')">&times;</button></div>
+  <div class="mhead"><h3 id="ns-modal-title">Add Staff Member</h3><button class="mclose" onclick="cm('m-add-staff')">&times;</button></div>
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:14px">
+    <div id="ns-pre-wrap"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input type="file" id="ns-file" accept="image/*" onchange="onStaffPhotoUpload(event)" style="display:none"/>
+      <label for="ns-file" class="mbtn t" style="cursor:pointer;text-align:center;padding:8px 14px">Choose Photo</label>
+      <button id="rm-ns-btn" class="mbtn" style="background:#e74c3c;border:none;color:#fff;border-radius:8px;display:none;padding:8px 14px" onclick="rmStaffPhoto()">Remove</button>
+    </div>
+  </div>
   <label class="flbl">Name</label><input id="ns-name" class="finp" placeholder="Full name"/>
   <label class="flbl">Role</label><input id="ns-role" class="finp" placeholder="e.g. Head Coach, Physiotherapist"/>
-  <div class="mfoot"><button class="mbtn t" onclick="doAddStaff()">Add Staff</button><button class="mbtn c" onclick="cm('m-add-staff')">Cancel</button></div>
+  <div class="mfoot"><button class="mbtn t" onclick="doSaveStaff()" id="ns-save-btn">Add Staff</button><button class="mbtn c" onclick="cm('m-add-staff')">Cancel</button></div>
 </div></div>
 
 <!-- Edit Stats Modal -->

@@ -708,13 +708,12 @@
 <!-- Create Admin Profile -->
 <div id="m-create-admin" class="modal"><div class="mbox wide">
   <div class="mhead"><h3>Create Admin Profile</h3><button class="mclose" onclick="cm('m-create-admin')">x</button></div>
-  <div style="background:#fff8e0;border:1.5px solid #ffe0a0;border-radius:8px;padding:10px 13px;margin-bottom:12px;font-size:12px;color:#b8860b"><strong>Master Code required.</strong> Only platform owners can create admins. Max 4 profiles allowed.</div>
-  <label class="flbl">Master Code</label><input id="ca-master" type="password" class="finp" placeholder="Enter master code"/>
+  <div style="background:#fff8e0;border:1.5px solid #ffe0a0;border-radius:8px;padding:10px 13px;margin-bottom:12px;font-size:12px;color:#b8860b"><strong>Platform Owner only.</strong> Max 4 profiles allowed.</div>
   <div class="edit-grid-2">
     <div><label class="flbl">Full Name</label><input id="ca-name" class="finp" placeholder="e.g. Yoren Tyzer"/></div>
     <div><label class="flbl">Username</label><input id="ca-username" class="finp" placeholder="e.g. yoren"/></div>
   </div>
-  <label class="flbl">Password</label><input id="ca-password" type="password" class="finp" placeholder="Create a password"/>
+  <label class="flbl">Password</label><input id="ca-password" type="password" class="finp" placeholder="Create a password (min 6 characters)"/>
   <div class="edit-grid-2">
     <div><label class="flbl">Role</label>
       <select id="ca-role" class="fsel">

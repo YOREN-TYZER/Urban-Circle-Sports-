@@ -5,6 +5,11 @@
 const SUPA_URL = 'https://nsjncrhwhbtzndhrxavr.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zam5jcmh3aGJ0em5kaHJ4YXZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0Njg2NTksImV4cCI6MjA5NjA0NDY1OX0.arTqEq1L5jkiOI8X09DKXb2kaWsuFTrGZWm4QWxm0gM';
 
+// Real admin session (from Supabase Auth), if currently signed in as admin.
+// This is what makes the "logged in as admin" state mean something to the
+// database itself — not just to the app's own UI. See supaAuth* functions.
+let supaSession = ld('uc_session_v1', null);
+
 async function sb(method, table, opts={}) {
   const {eq, data, select, order, limit, upsert, onConflict, neq, in: inFilter} = opts;
   let url = `${SUPA_URL}/rest/v1/${table}`;
@@ -17,9 +22,10 @@ async function sb(method, table, opts={}) {
   if (inFilter) Object.entries(inFilter).forEach(([k,vals]) => params.set(k, 'in.(' + (vals||[]).join(',') + ')'));
   if (upsert && onConflict) params.set('on_conflict', onConflict);
   if (params.toString()) url += '?' + params.toString();
+  const authToken = (supaSession && supaSession.access_token) ? supaSession.access_token : SUPA_KEY;
   const headers = {
     'apikey': SUPA_KEY,
-    'Authorization': 'Bearer ' + SUPA_KEY,
+    'Authorization': 'Bearer ' + authToken,
     'Content-Type': 'application/json',
     'Prefer': method === 'POST' ? (upsert ? 'resolution=merge-duplicates,return=representation' : 'return=representation') :
               method === 'PATCH' ? 'return=representation' : ''
@@ -50,6 +56,76 @@ async function sbUpload(bucket, filePath, file) {
   });
   if (!res.ok) throw new Error('Upload failed');
   return `${SUPA_URL}/storage/v1/object/public/${bucket}/${filePath}`;
+}
+
+// =====================================================================
+// SUPABASE AUTH (real admin accounts — passwords are hashed and verified
+// server-side by Supabase, never stored or compared in this file).
+// Admins log in with a plain "username" for a familiar UX; under the
+// hood each username maps to a synthetic internal email address, since
+// Supabase Auth accounts are keyed by email.
+// =====================================================================
+function usernameToEmail(username){
+  const u = (username||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,'');
+  return u + '@ucsports.internal';
+}
+async function supaAuthSignIn(username, password){
+  const res = await fetch(`${SUPA_URL}/auth/v1/token?grant_type=password`, {
+    method: 'POST',
+    headers: {'apikey': SUPA_KEY, 'Content-Type': 'application/json'},
+    body: JSON.stringify({email: usernameToEmail(username), password})
+  });
+  const json = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(json.error_description || json.msg || 'Invalid username or password.');
+  return json; // {access_token, refresh_token, expires_in, user:{id,...}}
+}
+async function supaAuthSignUp(username, password){
+  const res = await fetch(`${SUPA_URL}/auth/v1/signup`, {
+    method: 'POST',
+    headers: {'apikey': SUPA_KEY, 'Content-Type': 'application/json'},
+    body: JSON.stringify({email: usernameToEmail(username), password})
+  });
+  const json = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(json.error_description || json.msg || json.error || 'Could not create account.');
+  return json; // {access_token, refresh_token, user:{id,...}} (or just user if email confirmation is on)
+}
+async function supaAuthRefresh(refreshToken){
+  const res = await fetch(`${SUPA_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: 'POST',
+    headers: {'apikey': SUPA_KEY, 'Content-Type': 'application/json'},
+    body: JSON.stringify({refresh_token: refreshToken})
+  });
+  const json = await res.json().catch(()=>({}));
+  if(!res.ok) throw new Error(json.error_description || 'Session expired.');
+  return json;
+}
+function saveSession(authResp){
+  supaSession = {
+    access_token: authResp.access_token,
+    refresh_token: authResp.refresh_token,
+    user_id: authResp.user?.id,
+    expires_at: Date.now() + ((authResp.expires_in||3600)*1000)
+  };
+  sv('uc_session_v1', supaSession);
+}
+function clearSession(){
+  supaSession = null;
+  sv('uc_session_v1', null);
+}
+// On startup, if we have a saved admin session, make sure it's still
+// valid (refreshing it if it's expired) before trusting it.
+async function restoreSession(){
+  if(!supaSession || !supaSession.refresh_token) return false;
+  try{
+    if(Date.now() >= supaSession.expires_at - 30000){
+      const refreshed = await supaAuthRefresh(supaSession.refresh_token);
+      saveSession(refreshed);
+    }
+    return true;
+  }catch(e){
+    clearSession();
+    return false;
+  }
 }
 
 // =====================================================================
@@ -184,16 +260,9 @@ async function loadGalleryFromDB() {
 }
 
 async function loadAdminsFromDB() {
-  try {
-    const rows = await sb('GET', 'admins', {select: '*', order: 'created_at'});
-    // Store in local cache only (don't expose passwords in DOM)
-    dbAdmins = rows || [];
-    return true;
-  } catch(e) {
-    console.warn('Could not load admins from DB:', e.message);
-    dbAdmins = [];
-    return false;
-  }
+  // Deprecated: admin accounts now live in Supabase Auth + admin_profiles.
+  // Kept as a no-op only in case anything still references the name.
+  return true;
 }
 
 async function loadStandingsFromDB(cid) {
@@ -457,30 +526,41 @@ async function dbDeleteGalleryItem(id) {
   try { await sb('DELETE', 'gallery', {eq: {id}}); } catch(e) { console.warn(e.message); }
 }
 
+// Real admin login: verifies the password via Supabase Auth (hashed,
+// server-side — never compared in this file), then looks up that
+// admin's profile (name/role/managed club).
 async function dbLoginAdmin(username, password) {
+  const authResp = await supaAuthSignIn(username, password); // throws on bad credentials
+  saveSession(authResp);
   try {
-    const rows = await sb('GET', 'admins', {eq: {username, password_hash: password}, select: '*'});
-    return (rows && rows.length) ? rows[0] : null;
-  } catch(e) { console.warn('dbLoginAdmin failed, checking local:', e.message); return null; }
+    const rows = await sb('GET', 'admin_profiles', {eq: {user_id: authResp.user.id}, select: '*'});
+    if (!rows || !rows.length) { clearSession(); throw new Error('No admin profile found for this account.'); }
+    return rows[0];
+  } catch(e) { clearSession(); throw e; }
 }
 
+// Creating a new admin requires the CALLER to already be signed in as a
+// Platform Owner (enforced both here and, more importantly, by the
+// database's RLS policy on admin_profiles — so this can't be spoofed by
+// calling the API directly either).
 async function dbCreateAdmin(admin) {
-  try {
-    await sb('POST', 'admins', {data: {
-      username: admin.username, password_hash: admin.password,
-      name: admin.name, role: admin.role, managed_club: admin.managedClub
-    }});
-    return true;
-  } catch(e) { console.warn('dbCreateAdmin failed:', e.message); return false; }
+  const signupResp = await supaAuthSignUp(admin.username, admin.password); // throws on failure
+  const newUserId = signupResp.user && signupResp.user.id;
+  if (!newUserId) throw new Error('Account created but no user id returned — check if email confirmation is required in Supabase Auth settings.');
+  await sb('POST', 'admin_profiles', {data: {
+    user_id: newUserId, username: admin.username,
+    name: admin.name, role: admin.role, managed_club: admin.managedClub
+  }});
+  return true;
 }
 
-async function dbDeleteAdmin(username) {
-  try { await sb('DELETE', 'admins', {eq: {username}}); } catch(e) { console.warn(e.message); }
+async function dbDeleteAdmin(userId) {
+  await sb('DELETE', 'admin_profiles', {eq: {user_id: userId}});
 }
 
 async function dbGetAdmins() {
   try {
-    return await sb('GET', 'admins', {select: 'id,username,name,role,managed_club,created_at', order: 'created_at'}) || [];
+    return await sb('GET', 'admin_profiles', {select: 'user_id,username,name,role,managed_club,created_at', order: 'created_at'}) || [];
   } catch(e) { return []; }
 }
 
@@ -503,7 +583,7 @@ async function checkDBConnection() {
 // REALTIME (live sync across every connected device — no reload needed)
 // =====================================================================
 let supaRT=null;
-const RT_TABLES=['matchdays','scorers','clubs','players','gallery','headlines','comments','ratings','standings','admins','settings'];
+const RT_TABLES=['matchdays','scorers','clubs','players','gallery','headlines','comments','ratings','standings','admin_profiles','settings'];
 function initRealtime(){
   if(!dbConnected)return;
   if(!window.supabase||typeof window.supabase.createClient!=='function'){
@@ -593,8 +673,8 @@ async function handleRealtimeChange(table,payload){
       if($('m-standings')?.classList.contains('open')&&$('standings-club-id')?.value===cid) renderStandingsModal(cid);
       refreshAfterRT();
     });
-  } else if(table==='admins'){
-    debounceRT('admins',function(){ loadAdminsFromDB(); });
+  } else if(table==='admin_profiles'){
+    debounceRT('admin_profiles',function(){ if($('m-create-admin')&&$('m-create-admin').classList.contains('open')) renderAdminProfiles(); });
   } else if(table==='settings'){
     if(row.key==='uc_logo'){
       ucLogo=row.value||null;
@@ -617,10 +697,7 @@ async function handleRealtimeChange(table,payload){
 // =====================================================================
 // CONSTANTS
 // =====================================================================
-const MASTER_CODE = 'UCS@2025Master';
 const MAX_ADMINS = 4;
-function getAdmins(){return ld('uc_admins_v7',[])}
-function saveAdmins(a){sv('uc_admins_v7',a)}
 
 const POSITIONS = {
   Football:['Goalkeeper','Right Back','Centre Back','Left Back','Defensive Mid',
@@ -1605,80 +1682,75 @@ function openLogsView(){showV('logs');renderLogs();}
 // ADMIN
 // =====================================================================
 function handleAdminClick(){
-  if(isAdmin){showConfirm('Logout','Log out of admin mode?','Yes, Logout',function(){isAdmin=false;currentAdmin=null;updAB();refreshView();});}
+  if(isAdmin){showConfirm('Logout','Log out of admin mode?','Yes, Logout',function(){isAdmin=false;currentAdmin=null;clearSession();updAB();refreshView();});}
   else openModal('m-admin');
 }
 async function doAdminLogin(){
   const uname=($('ap-username')||{}).value?.trim()||'';
   const pass=($('ap')||{}).value?.trim()||'';
-  let found=null;
+  if(!uname||!pass){$('ap-err').textContent='Enter your username and password.';$('ap-err').style.display='';return;}
+  if(!dbConnected){$('ap-err').textContent='Cannot reach the server right now. Check your connection and try again.';$('ap-err').style.display='';return;}
 
-  // Try Supabase DB first
-  if(dbConnected){
-    found=await dbLoginAdmin(uname,pass);
-    if(found){ found.managedClub=found.managed_club; }
-  }
-
-  // Fallback to localStorage admins
-  if(!found){
-    const admins=getAdmins();
-    found=admins.find(a=>a.username===uname&&a.password===pass)||null;
-  }
-
-  if(found){
+  try{
+    const found = await dbLoginAdmin(uname,pass);
+    found.managedClub=found.managed_club;
     isAdmin=true;currentAdmin=found;cm('m-admin');
     if($('ap'))$('ap').value='';if($('ap-username'))$('ap-username').value='';
     $('ap-err').style.display='none';
     updAB();refreshView();
     writeLog('admin_login','admin',{details:{name:found.name,role:found.role}});
     showToast('Welcome '+found.name,'Logged in as '+(found.role||'Admin'));
-  } else {
-    $('ap-err').textContent='Incorrect username or password.';$('ap-err').style.display='';
+  }catch(e){
+    $('ap-err').textContent=e.message||'Incorrect username or password.';$('ap-err').style.display='';
   }
 }
 async function doCreateAdmin(){
-  const masterCode=($('ca-master')||{}).value?.trim()||'';
-  if(masterCode!==MASTER_CODE){if($('ca-err')){$('ca-err').textContent='Invalid master code.';$('ca-err').style.display='';}return;}
+  if(!isOwner()){if($('ca-err')){$('ca-err').textContent='Only the Platform Owner can create admin profiles.';$('ca-err').style.display='';}return;}
   const username=($('ca-username')||{}).value?.trim()||'';
   const password=($('ca-password')||{}).value?.trim()||'';
   const name=($('ca-name')||{}).value?.trim()||'';
   const role=($('ca-role')||{}).value||'Club Admin';
   const managedClub=($('ca-club')||{}).value||'all';
   if(!username||!password||!name){if($('ca-err')){$('ca-err').textContent='All fields required.';$('ca-err').style.display='';}return;}
-  const admins=getAdmins();
-  if(admins.find(a=>a.username===username)){if($('ca-err')){$('ca-err').textContent='Username taken.';$('ca-err').style.display='';}return;}
-  var newAdmin={username,password,name,role,managedClub,created:new Date().toISOString()};
-  admins.push(newAdmin);saveAdmins(admins);
-  if(dbConnected){ await dbCreateAdmin(newAdmin); }
-  cm('m-create-admin');
-  showToast('Admin Created',name+' can now log in.');
-  writeLog('admin_created','admin',{details:{name,role}});
-  renderAdminProfiles();
+  if(password.length<6){if($('ca-err')){$('ca-err').textContent='Password must be at least 6 characters.';$('ca-err').style.display='';}return;}
+  var newAdmin={username,password,name,role,managedClub};
+  try{
+    await dbCreateAdmin(newAdmin);
+    cm('m-create-admin');
+    showToast('Admin Created',name+' can now log in.');
+    writeLog('admin_created','admin',{details:{name,role}});
+    renderAdminProfiles();
+  }catch(e){
+    if($('ca-err')){$('ca-err').textContent=e.message||'Could not create admin.';$('ca-err').style.display='';}
+  }
 }
-async function doDeleteAdmin(username){
+async function doDeleteAdmin(userId,username){
   showConfirm('Remove Admin','Remove admin "'+username+'"?','Yes, Remove',async function(){
-    var admins=getAdmins().filter(function(a){return a.username!==username;});
-    saveAdmins(admins);
-    if(dbConnected){await dbDeleteAdmin(username);}
-    showToast('Admin Removed',username+' removed.');renderAdminProfiles();
+    try{
+      await dbDeleteAdmin(userId);
+      showToast('Admin Removed',username+' removed.');renderAdminProfiles();
+    }catch(e){
+      showToast('Error','Could not remove admin: '+(e.message||''));
+    }
   });
 }
 async function renderAdminProfiles(){
-  if(dbConnected){ dbAdmins=await dbGetAdmins(); }
+  var admins=dbConnected?await dbGetAdmins():[];
   var el=$('admin-profiles-list');if(!el)return;
-  var admins=dbConnected&&dbAdmins.length?dbAdmins.map(function(a){return{...a,managedClub:a.managed_club};}):getAdmins();
   if(!admins.length){el.innerHTML='<div style="color:#999;font-style:italic;font-size:13px">No admin profiles yet.</div>';return;}
   el.innerHTML=admins.map(function(a){
-    var clubName=a.managedClub==='all'?'All Clubs':(getClub(a.managedClub)||{}).short||a.managedClub;
+    var clubName=a.managed_club==='all'?'All Clubs':(getClub(a.managed_club)||{}).short||a.managed_club;
     return '<div style="display:flex;align-items:center;gap:10px;padding:10px 13px;background:#f8f9fc;border-radius:9px;border:1.5px solid #e0e4ef;margin-bottom:7px">'+
       '<div style="width:38px;height:38px;border-radius:50%;background:#1d2d5a;color:#4dc8c8;display:flex;align-items:center;justify-content:center;font-family:Oswald,sans-serif;font-size:15px;font-weight:700;flex-shrink:0">'+a.name.split(' ').map(function(w){return w[0]}).join('').slice(0,2).toUpperCase()+'</div>'+
       '<div style="flex:1"><div style="font-weight:700;font-size:14px;color:#1a1a2e">'+a.name+'</div>'+
       '<div style="font-size:11px;color:#999">@'+a.username+' - '+a.role+' - '+clubName+'</div></div>'+
-      '<button onclick="doDeleteAdmin(\''+a.username+'\')" style="background:none;border:none;color:#e74c3c;font-size:18px;cursor:pointer;padding:3px">x</button></div>';
+      '<button onclick="doDeleteAdmin(\''+a.user_id+'\',\''+a.username+'\')" style="background:none;border:none;color:#e74c3c;font-size:18px;cursor:pointer;padding:3px">x</button></div>';
   }).join('');
 }
 function openCreateAdmin(){
   if(!isAdmin||!currentAdmin||currentAdmin.role!=='Platform Owner'){showToast('Access Denied','Only the Platform Owner can manage admin profiles.');return;}
+  $('ca-username').value='';$('ca-password').value='';$('ca-name').value='';
+  if($('ca-err'))$('ca-err').style.display='none';
   openModal('m-create-admin');
   setTimeout(renderAdminProfiles,50);
 }
@@ -3729,6 +3801,18 @@ async function init(){
   const ok = await loadClubsFromDB();
   dbConnected = ok;
   if(dbConnected){
+    if(await restoreSession()){
+      try{
+        const rows = await sb('GET','admin_profiles',{eq:{user_id:supaSession.user_id},select:'*'});
+        if(rows && rows.length){
+          isAdmin=true;
+          currentAdmin={...rows[0], managedClub: rows[0].managed_club};
+          updAB();
+        } else {
+          clearSession();
+        }
+      }catch(e){ console.warn('Session restore profile fetch failed:', e.message); clearSession(); }
+    }
     checkScheduledNotifs();
     // Render immediately with just the club shells (logos, names) so the
     // page is interactive right away instead of staying blank while every

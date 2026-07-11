@@ -6,7 +6,7 @@ const SUPA_URL = 'https://nsjncrhwhbtzndhrxavr.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zam5jcmh3aGJ0em5kaHJ4YXZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0Njg2NTksImV4cCI6MjA5NjA0NDY1OX0.arTqEq1L5jkiOI8X09DKXb2kaWsuFTrGZWm4QWxm0gM';
 
 async function sb(method, table, opts={}) {
-  const {eq, data, select, order, limit, upsert, neq, in: inFilter} = opts;
+  const {eq, data, select, order, limit, upsert, onConflict, neq, in: inFilter} = opts;
   let url = `${SUPA_URL}/rest/v1/${table}`;
   const params = new URLSearchParams();
   if (select) params.set('select', select);
@@ -15,6 +15,7 @@ async function sb(method, table, opts={}) {
   if (eq) Object.entries(eq).forEach(([k,v]) => params.set(k, 'eq.' + v));
   if (neq) Object.entries(neq).forEach(([k,v]) => params.set(k, 'neq.' + v));
   if (inFilter) Object.entries(inFilter).forEach(([k,vals]) => params.set(k, 'in.(' + (vals||[]).join(',') + ')'));
+  if (upsert && onConflict) params.set('on_conflict', onConflict);
   if (params.toString()) url += '?' + params.toString();
   const headers = {
     'apikey': SUPA_KEY,
@@ -106,6 +107,7 @@ async function loadClubDataFromDB(cid) {
     }));
     clubData[cid] = {players: normPlayers, matchdays: normMds, headlines: headlines||[]};
     sv('uc_data_v7', clubData);
+    await Promise.all([loadAllRatingsFromDB(cid), loadClubDescFromDB(cid), loadTechTeamFromDB(cid)]);
   } catch(e) { console.warn('DB load club data failed:', e.message); }
 }
 
@@ -171,7 +173,7 @@ async function loadMatchdayDataFromDB(cid, mid) {
 async function loadGalleryFromDB() {
   try {
     const rows = await sb('GET', 'gallery', {select: '*', order: 'created_at.desc'});
-    gallery = rows || [];
+    gallery = (rows||[]).map(r => ({...r, clubId: r.club_id||null}));
     sv('uc_gallery_v7', gallery);
     return true;
   } catch(e) {
@@ -363,9 +365,24 @@ async function dbPostRating(cid, mid, pid, stars) {
   try {
     await sb('POST', 'ratings', {
       data: {club_id: cid, matchday_id: mid, player_id: pid, fan_id: fanId, stars},
-      upsert: true
+      upsert: true,
+      onConflict: 'club_id,matchday_id,player_id,fan_id'
     });
   } catch(e) { console.warn('dbPostRating failed:', e.message); }
+}
+async function loadAllRatingsFromDB(cid) {
+  try {
+    const rows = await sb('GET', 'ratings', {eq: {club_id: cid}, select: '*'});
+    (rows||[]).forEach(r => {
+      const k = cid+'_'+r.matchday_id+'_'+r.player_id;
+      if (!ratings[k]) ratings[k] = {};
+      ratings[k][r.fan_id] = {stars: r.stars};
+      const ok = cid+'_'+r.player_id;
+      if (!ratings[ok]) ratings[ok] = {};
+      ratings[ok][r.fan_id+'_'+r.matchday_id] = {stars: r.stars};
+    });
+    sv('uc_ratings_v7', ratings);
+  } catch(e) { console.warn('loadAllRatingsFromDB failed:', e.message); }
 }
 
 async function dbPostComment(cid, mid, pid, text) {
@@ -558,9 +575,16 @@ async function handleRealtimeChange(table,payload){
     const cid=row.club_id;if(!cid)return;
     debounceRT('headlines_'+cid,async function(){ await loadClubDataFromDB(cid); refreshAfterRT(); });
   } else if(table==='comments'||table==='ratings'){
-    const mid=row.matchday_id;
+    const mid=row.matchday_id,cid=row.club_id;
     if(mid&&clubId&&mdId===mid){
       debounceRT(table+'_'+mid,async function(){ await loadMatchdayDataFromDB(clubId,mdId); refreshAfterRT(); });
+    }
+    if(table==='ratings'&&cid){
+      debounceRT('ratings_all_'+cid,async function(){
+        await loadAllRatingsFromDB(cid);
+        const lbView=document.getElementById('view-leaderboard');
+        if(lbView&&lbView.classList.contains('active')) renderLeaderboardHub(lbHubTab||'all');
+      },400);
     }
   } else if(table==='standings'){
     const cid=row.club_id;if(!cid)return;
@@ -577,6 +601,15 @@ async function handleRealtimeChange(table,payload){
       if(ucLogo)localStorage.setItem('uc_main_logo',ucLogo);else localStorage.removeItem('uc_main_logo');
       renderBrandLogo();
       refreshAfterRT();
+    } else if(row.key&&row.key.indexOf('club_desc_')===0){
+      const cid=row.key.slice('club_desc_'.length);
+      clubDescriptions[cid]=row.value||'';sv('uc_clubdesc_v7',clubDescriptions);
+      if(clubId===cid) refreshAfterRT();
+    } else if(row.key&&row.key.indexOf('techteam_')===0){
+      const cid=row.key.slice('techteam_'.length);
+      try{ techTeams[cid]=JSON.parse(row.value)||[]; }catch(e){ techTeams[cid]=[]; }
+      sv('uc_techteam_v7',techTeams);
+      if(clubId===cid) refreshAfterRT();
     }
   }
 }
@@ -740,11 +773,15 @@ let ratings  = ld('uc_ratings_v7', {});
 let comments = ld('uc_cmts_v7',    {});
 let scorers  = ld('uc_scorers_v7', {});
 let lineups  = ld('uc_lineups_v7', {});
+let clubDescriptions = ld('uc_clubdesc_v7', {});
+let techTeams = ld('uc_techteam_v7', {});
 let logs     = ld('uc_logs_v7',    []);
 let notifSent= ld('uc_notifs_v7',  {});
 let ucLogo   = localStorage.getItem('uc_main_logo') || null;
 
 let isAdmin=false,currentAdmin=null,clubId=null,mdId=null,activeTab='players';
+let mdReturnTo=null;
+let clubReturnTo=null;
 function isOwner(){ return isAdmin && currentAdmin && currentAdmin.role==='Platform Owner'; }
 function requireOwner(actionLabel){
   if(!isOwner()){
@@ -765,6 +802,20 @@ let timerInterval=null,timerMdId=null;
 let standings=ld('uc_standings_v7',{warriors:[],gladiators:[],titans:[]});
 // NOTE: standings are loaded fresh from Supabase on init; localStorage is only a brief cache.
 let gallery=ld('uc_gallery_v7',[]);
+let homeStripHidden = ld('uc_stripstate_v7', {gallery:false, news:false});
+function toggleHomeStrip(key){
+  homeStripHidden[key] = !homeStripHidden[key];
+  sv('uc_stripstate_v7', homeStripHidden);
+  applyHomeStripVisibility();
+}
+function applyHomeStripVisibility(){
+  const galBody=$('home-gallery-preview'), galToggle=$('gallery-strip-toggle');
+  if(galBody) galBody.style.display = homeStripHidden.gallery ? 'none' : '';
+  if(galToggle) galToggle.textContent = homeStripHidden.gallery ? 'Show' : 'Hide';
+  const newsBody=$('home-news-preview'), newsToggle=$('news-strip-toggle');
+  if(newsBody) newsBody.style.display = homeStripHidden.news ? 'none' : '';
+  if(newsToggle) newsToggle.textContent = homeStripHidden.news ? 'Show' : 'Hide';
+}
 let dbAdmins=[];
 
 // =====================================================================
@@ -922,6 +973,10 @@ function pausedBreakLabel(md){
 // agree. The clock only exists once an admin has actually pressed
 // "Go Live" (md.matchStartedAt set) — it never starts itself off the
 // scheduled kickoff time.
+function ordinalWord(n){
+  const words=['First','Second','Third','Fourth','Fifth','Sixth'];
+  return words[n-1]||(n+'th');
+}
 function getLiveClockInfo(md){
   if(!md||md.status!=='live'||!md.matchStartedAt) return {running:false};
   const dur=getDuration(md);
@@ -938,15 +993,15 @@ function getLiveClockInfo(md){
   const atCap=elapsedInHalf>=halfSecs;
   const cumulativeBase=(currentHalf-1)*halfSecs; // e.g. 1800s once half 2 begins
   const isNB=dur.sport==='Netball';
-  const halfLabel=isNB?('Quarter '+currentHalf+' of '+dur.halves):('Half '+currentHalf+' of '+dur.halves);
+  const halfLabel=isNB?('Quarter '+currentHalf+' of '+dur.halves):(ordinalWord(currentHalf)+' Half');
   const breakLabel=isNB
     ?(currentHalf===1?'Q1/Q2 Break':currentHalf===2?'Half Time':currentHalf===3?'Q3/Q4 Break':'Break')
     :'Half Time';
   let timeStr=null;
   if(!paused){
     if(atCap){
-      const extra=elapsedInHalf-halfSecs;
-      timeStr=Math.floor((cumulativeBase+halfSecs)/60)+'+'+(extra<10?'0':'')+extra+"''";
+      const extraMins=Math.floor((elapsedInHalf-halfSecs)/60);
+      timeStr=Math.floor((cumulativeBase+halfSecs)/60)+'+'+extraMins+"'";
     } else {
       const cum=cumulativeBase+elapsedInHalf;
       const mm=Math.floor(cum/60),ss=cum%60;
@@ -1298,7 +1353,7 @@ async function resumeTimer(mdId2){
   sv('uc_data_v7',clubData);
   if(dbConnected){ await dbSaveMatchday(clubId,{...md2,_dbId:md2._dbId||md2.id}); }
   writeLog('match_resumed','matchday',{matchday_id:mdId2});
-  showToast('Match Resumed',wasAtHalfBreak?(dur.sport==='Netball'?('Quarter '+md2.currentHalf+' underway!'):('Half '+md2.currentHalf+' underway!')):'Play resumed!');
+  showToast('Match Resumed',wasAtHalfBreak?(dur.sport==='Netball'?('Quarter '+md2.currentHalf+' underway!'):(ordinalWord(md2.currentHalf)+' Half underway!')):'Play resumed!');
   refreshClockUI(md2);
 }
 // Re-paints whichever live-clock UI is currently on screen for this match
@@ -1438,15 +1493,60 @@ async function dbSaveSetting(key,value){
     return true;
   }catch(e){ console.warn('dbSaveSetting failed:',e.message); return false; }
 }
+async function dbGetSetting(key){
+  try{
+    const rows=await sb('GET','settings',{eq:{key},select:'value'});
+    return rows&&rows.length?rows[0].value:null;
+  }catch(e){ console.warn('dbGetSetting failed:',key,e.message); return null; }
+}
+async function loadClubDescFromDB(cid){
+  const v=await dbGetSetting('club_desc_'+cid);
+  if(v!=null){ clubDescriptions[cid]=v; sv('uc_clubdesc_v7',clubDescriptions); }
+}
+async function saveClubDescToDB(cid,text){
+  if(!dbConnected) return;
+  await dbSaveSetting('club_desc_'+cid, text);
+}
+async function loadTechTeamFromDB(cid){
+  const v=await dbGetSetting('techteam_'+cid);
+  if(v!=null){
+    try{ techTeams[cid]=JSON.parse(v)||[]; }catch(e){ techTeams[cid]=[]; }
+    sv('uc_techteam_v7',techTeams);
+  }
+}
+async function saveTechTeamToDB(cid){
+  if(!dbConnected) return;
+  await dbSaveSetting('techteam_'+cid, JSON.stringify(techTeams[cid]||[]));
+}
 
 // =====================================================================
 // NAV
 // =====================================================================
 function showV(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+id).classList.add('active')}
 function goHome(){clubId=null;mdId=null;stopTimer();$('back-btn').style.display='none';$('hdr-sep').style.display='none';$('hdr-club').style.display='none';document.documentElement.style.removeProperty('--c-accent');document.documentElement.style.removeProperty('--c-primary');showV('home');renderHome();}
-function goBack(){if(mdId){mdId=null;stopTimer();showV('club');renderClub();}else goHome();}
-async function enterClub(id){
-  clubId=id;mdId=null;activeTab='players';const c=getClub(id);
+function goBack(){
+  if(mdId){
+    mdId=null;stopTimer();
+    if(mdReturnTo){
+      const rt=mdReturnTo;mdReturnTo=null;
+      if(rt.view==='logshub'){showV('logshub');switchLogsTab(rt.tab);return;}
+      if(rt.view==='home'){goHome();return;}
+    }
+    showV('club');renderClub();
+  } else if(clubReturnTo){
+    const rt=clubReturnTo;clubReturnTo=null;
+    if(rt.view==='newshub'){
+      clubId=null;stopTimer();
+      $('back-btn').style.display='none';$('hdr-sep').style.display='none';$('hdr-club').style.display='none';
+      document.documentElement.style.removeProperty('--c-accent');document.documentElement.style.removeProperty('--c-primary');
+      showV('newshub');renderNewsHub();
+    } else {
+      goHome();
+    }
+  } else goHome();
+}
+async function enterClub(id,returnTo){
+  clubId=id;mdId=null;activeTab='players';clubReturnTo=returnTo||null;const c=getClub(id);
   if(dbConnected){ await loadClubDataFromDB(id); await loadStandingsFromDB(id); }
   document.documentElement.style.setProperty('--c-accent',c.accent);
   document.documentElement.style.setProperty('--c-primary',c.primary);
@@ -1454,15 +1554,39 @@ async function enterClub(id){
   $('hdr-club').textContent=c.short;$('hdr-club').style.display='';
   showV('club');renderClub();
 }
+// Open a club's News tab from the Home page's Latest News strip or the News
+// Hub, while remembering to return there on exit instead of always landing
+// on the Home page.
+function viewClubNews(cid,returnView){
+  enterClub(cid, returnView?{view:returnView}:null);
+  switchTab('news');
+}
 async function enterMd(id){
-  mdId=id;expPlayer=null;spOpen=true;lpOpen=true;
+  mdId=id;mdReturnTo=null;expPlayer=null;spOpen=true;lpOpen=true;
   if(dbConnected){ await loadMatchdayDataFromDB(clubId, id); }
   showV('matchday');renderMd();reqNotifPerm();
 }
 // Jump straight to a live match's detail view from the home page —
 // no intermediate club-page flash.
 async function goToLiveMatch(cid,mid){
-  clubId=cid;mdId=mid;activeTab='matchdays';expPlayer=null;spOpen=true;lpOpen=true;
+  clubId=cid;mdId=mid;mdReturnTo={view:'home'};activeTab='matchdays';expPlayer=null;spOpen=true;lpOpen=true;
+  const c=getClub(cid);if(!c)return;
+  if(dbConnected){
+    await loadClubDataFromDB(cid);
+    await loadStandingsFromDB(cid);
+    await loadMatchdayDataFromDB(cid,mid);
+  }
+  document.documentElement.style.setProperty('--c-accent',c.accent);
+  document.documentElement.style.setProperty('--c-primary',c.primary);
+  $('back-btn').style.display='';$('hdr-sep').style.display='';
+  $('hdr-club').textContent=c.short;$('hdr-club').style.display='';
+  showV('matchday');renderMd();reqNotifPerm();
+}
+// Open a match's full detail view from within the Logs Hub (Fixtures or Live
+// tab) while remembering to return to that same hub tab on exit, instead of
+// dropping the user onto the club's Matchdays tab.
+async function viewMdFromLogsHub(cid,mid,hubTab){
+  clubId=cid;mdId=mid;mdReturnTo={view:'logshub',tab:hubTab||'fixtures'};activeTab='matchdays';expPlayer=null;spOpen=true;lpOpen=true;
   const c=getClub(cid);if(!c)return;
   if(dbConnected){
     await loadClubDataFromDB(cid);
@@ -1630,12 +1754,42 @@ function renderHome(){
       var club = item.clubId ? getClub(item.clubId) : null;
       var overlay = (i===3&&gallery.length>4) ? '<div style="position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-family:Oswald,sans-serif;font-size:20px;font-weight:700">+' + (gallery.length-4) + '</div>' : '';
       var badge = club ? '<div style="position:absolute;bottom:5px;left:5px;padding:1px 6px;border-radius:6px;font-size:9px;font-weight:800;background:' + club.primary + ';color:' + club.accent + '">' + club.short + '</div>' : '';
-      previewHTML += '<div onclick="openGalleryView()" style="position:relative;aspect-ratio:1;overflow:hidden;cursor:pointer;background:#f0f0f5"><img src="' + item.img + '" alt="' + item.title + '" style="width:100%;height:100%;object-fit:cover"/>' + overlay + badge + '</div>';
+      previewHTML += '<div onclick="openGalleryView()" style="position:relative;aspect-ratio:1;min-width:0;overflow:hidden;cursor:pointer;background:#f0f0f5"><img src="' + item.img + '" alt="' + item.title + '" style="width:100%;height:100%;object-fit:cover"/>' + overlay + badge + '</div>';
     });
     preview.innerHTML = previewHTML;
   } else if(strip){
     strip.style.display = 'none';
   }
+
+  // News preview strip — show the latest few headlines across all clubs.
+  // (The full, unabridged list for every club lives in the News Hub itself.)
+  var newsStrip = $('home-news-strip');
+  var newsPreview = $('home-news-preview');
+  if(newsStrip && newsPreview){
+    var allNews = [];
+    clubs.forEach(function(c){
+      (getData(c.id)?.headlines||[]).forEach(function(h){ allNews.push(Object.assign({},h,{clubId:c.id})); });
+    });
+    allNews.sort(function(a,b){
+      var av=a.created_at?new Date(a.created_at).getTime():0;
+      var bv=b.created_at?new Date(b.created_at).getTime():0;
+      return bv-av;
+    });
+    if(allNews.length){
+      newsStrip.style.display='';
+      newsPreview.innerHTML = allNews.slice(0,4).map(function(h){
+        var club = getClub(h.clubId);
+        return '<div data-cid="'+h.clubId+'" onclick="viewClubNews(this.dataset.cid,\'home\')" style="display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 13px;margin-bottom:8px;cursor:pointer">'
+          + '<img src="'+logoSrc(club)+'" style="width:30px;height:30px;object-fit:contain;border-radius:7px;flex-shrink:0"/>'
+          + '<div style="flex:1;min-width:0"><div style="font-family:Oswald,sans-serif;font-size:14px;font-weight:700;color:#1a1a2e">'+h.title+'</div>'
+          + '<div style="font-size:11px;color:#999"><span style="color:'+club.accent+';font-weight:700">'+club.short+'</span>'+(h.date?' &middot; '+h.date:'')+'</div></div>'
+          + '</div>';
+      }).join('');
+    } else {
+      newsStrip.style.display='none';
+    }
+  }
+  applyHomeStripVisibility();
 
   // Show Live tile if any match is live
   var anyLive = false;
@@ -1688,7 +1842,7 @@ function clubCardH(club){
 function renderClub(){
   const club=getClub(clubId),data=getData(clubId);if(!club||!data)return;
   $('club-banner').innerHTML=`<div style="background:${club.primary};border-radius:16px;padding:20px 24px;display:flex;align-items:center;gap:18px;border-bottom:4px solid ${club.accent};position:relative">
-    ${logoH(club,76)}<div style="flex:1"><h2>${club.name}</h2><div class="ban-meta" style="color:${club.accent}">${club.sport} &middot; ${data.players.length} Players</div><div class="ban-tag">${club.tagline}</div></div>
+    ${logoH(club,76)}<div style="flex:1"><h2>${club.name}</h2><div class="ban-meta" style="color:${club.accent}">${club.sport} &middot; ${data.players.length} Players</div><div class="ban-tag">${club.tagline}</div>${clubDescriptions[clubId]?`<div style="font-size:12.5px;color:rgba(255,255,255,.75);margin-top:6px;line-height:1.5;max-width:520px">${clubDescriptions[clubId]}</div>`:''}</div>
     ${isAdmin?`<button id="edit-club-btn" onclick="openEditClub()">&#9999; Edit Club</button>`:''}
   </div>`;
   // Sync both tab buttons AND tab panels to activeTab
@@ -1706,12 +1860,13 @@ function renderTabAct(){
   const club=getClub(clubId),data=getData(clubId);let h='';
   if(isAdmin){
     if(activeTab==='players'&&(data?.players||[]).length<30)h=`<button class="tact-btn" style="border-color:#2ecc71;color:#2ecc71" onclick="openAddPlayer()">+ Add Player</button>`;
+    else if(activeTab==='staff')h=`<button class="tact-btn" style="border-color:${club.accent};color:${club.accent}" onclick="openAddStaff()">+ Add Staff</button>`;
     else if(activeTab==='matchdays')h=`<button class="tact-btn" style="border-color:${club.accent};color:${club.accent}" onclick="openAddMd()">+ Add Matchday</button>`;
     else if(activeTab==='news')h=`<button class="tact-btn" style="border-color:#e74c3c;color:#e74c3c" onclick="openAddNews()">+ Add Headline</button>`;
   }
   $('tab-act').innerHTML=h;
 }
-function renderTabContent(){if(activeTab==='players')renderPlayers();if(activeTab==='matchdays')renderMatchdays();if(activeTab==='news')renderNews();}
+function renderTabContent(){if(activeTab==='players')renderPlayers();if(activeTab==='staff')renderStaff();if(activeTab==='matchdays')renderMatchdays();if(activeTab==='news')renderNews();}
 
 function renderPlayers(){
   const club=getClub(clubId),data=getData(clubId),players=data?.players||[];
@@ -1755,6 +1910,70 @@ function delPlayer(pid){
     writeLog('player_deleted','player',{details:{name:p?.name}});
     showToast('Player Removed',`${p?.name||'Player'} removed.`);
   });
+}
+
+// =====================================================================
+// TECHNICAL TEAM (STAFF)
+// =====================================================================
+function renderStaff(){
+  const club=getClub(clubId),list=techTeams[clubId]||[];
+  if(!list.length){$('staff-grid').innerHTML=`<div class="empty-msg">No technical team members added yet.</div>`;return;}
+  $('staff-grid').innerHTML=list.map(s=>staffCardH(s,club)).join('');
+}
+function staffCardH(s,club){
+  const ini=(s.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  return`<div class="pc" id="stf_${s.id}">
+    <div class="pc-head" style="background:${club.primary}">
+      <div class="av" style="width:66px;height:66px;border-color:${club.accent};background:${club.primary};color:${club.accent};font-family:'Oswald',sans-serif;font-size:22px;font-weight:700">${ini}</div>
+      <div class="pc-name">${s.name}</div>
+      <div class="pc-meta" style="color:${club.accent}">${s.role||'Staff'}</div>
+    </div>
+    ${isAdmin?`<div class="pc-actions">
+      <button class="pc-ab" style="border-color:#e74c3c;color:#e74c3c;flex:1" onclick="event.stopPropagation();delStaff('${s.id}')">&#128465; Remove</button>
+    </div>`:''}
+  </div>`;
+}
+function openAddStaff(){$('ns-name').value='';$('ns-role').value='';openModal('m-add-staff');}
+async function doAddStaff(){
+  const name=$('ns-name').value.trim(),role=$('ns-role').value.trim();
+  if(!name)return;
+  if(!techTeams[clubId])techTeams[clubId]=[];
+  techTeams[clubId].push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),name,role});
+  sv('uc_techteam_v7',techTeams);
+  if(dbConnected){ await saveTechTeamToDB(clubId); }
+  writeLog('staff_added','staff',{details:{name,role}});
+  cm('m-add-staff');renderStaff();renderTechTeamPanel(getClub(clubId));
+  showToast('Staff Added',`${name} added to the technical team.`);
+}
+async function delStaff(id){
+  showConfirm('Remove Staff Member','Remove this person from the technical team?','Yes, Remove',async()=>{
+    const list=techTeams[clubId]||[];
+    const s=list.find(x=>x.id===id);
+    techTeams[clubId]=list.filter(x=>x.id!==id);
+    sv('uc_techteam_v7',techTeams);
+    if(dbConnected){ await saveTechTeamToDB(clubId); }
+    writeLog('staff_removed','staff',{details:{name:s?.name}});
+    renderStaff();renderTechTeamPanel(getClub(clubId));
+    showToast('Staff Removed',`${s?.name||'Staff member'} removed.`);
+  });
+}
+// Read-only Technical Team summary shown on a matchday's page, so fans can
+// see the coaching staff behind the lineup, not just the players.
+function renderTechTeamPanel(club){
+  const panel=$('techteam-md-panel');if(!panel)return;
+  const list=techTeams[club.id]||[];
+  if(!list.length){panel.innerHTML='';return;}
+  panel.innerHTML=`<div class="panel">
+    <div class="panel-hdr" style="cursor:default">
+      <div class="panel-title" style="color:${club.accent}">Technical Team</div>
+    </div>
+    <div class="panel-body" style="display:flex;flex-wrap:wrap;gap:10px">
+      ${list.map(s=>`<div style="display:flex;align-items:center;gap:8px;background:#fafafa;border:1.5px solid var(--border);border-radius:10px;padding:7px 12px">
+        <span style="font-family:'Oswald',sans-serif;font-weight:700;color:#1a1a2e;font-size:13px">${s.name}</span>
+        <span style="font-size:11px;color:#999">${s.role||'Staff'}</span>
+      </div>`).join('')}
+    </div>
+  </div>`;
 }
 
 function renderMatchdays(){
@@ -1899,6 +2118,7 @@ function renderMd(){
   if(isLive)startTimer(md);else stopTimer();
   renderScorers(club,data,md);
   renderLineup(club,data,md);
+  renderTechTeamPanel(club);
   renderMdPlayers(club,data,md);
 }
 
@@ -2062,7 +2282,9 @@ function buildPitchSVG(isNB){
 function renderLineup(club,data,md){
   const key=clubId+'_'+md.id;
   const formList=Object.keys(FORMATIONS[club.sport]||{});
-  const lu=lineups[key]||{formation:formList[0]||'',slots:{},subs:[]};
+  if(!lineups[key]) lineups[key]={formation:formList[0]||'',slots:{},subs:[]};
+  else if(!lineups[key].formation) lineups[key].formation=formList[0]||'';
+  const lu=lineups[key];
   const rows=FORMATIONS[club.sport]?.[lu.formation]||[];
   const players=data.players||[];
   const sc=scorers[key]||{goals:[],assists:[]};
@@ -2082,9 +2304,13 @@ function renderLineup(club,data,md){
       const player=pid?players.find(p=>p.id===pid):null;
       const goals=(sc.goals||[]).filter(g=>g.pid===pid).length;
       const assists=(sc.assists||[]).filter(a=>a.pid===pid).length;
+      const yellows=(sc.cards||[]).filter(c=>c.pid===pid&&c.type==='yellow').length;
+      const reds=(sc.cards||[]).filter(c=>c.pid===pid&&c.type==='red').length;
       let events='';
       for(let g=0;g<Math.min(goals,3);g++) events+='⚽';
       if(assists) for(let a=0;a<Math.min(assists,2);a++) events+='🎯';
+      if(yellows) for(let y=0;y<Math.min(yellows,2);y++) events+='🟨';
+      if(reds) events+='🟥';
       const pRating=pid?mdRating(clubId,md.id,pid):0;
       const pRatingStars=pid&&pRating>0?Array.from({length:5},(_,i)=>`<span class="pp-star ${i<Math.round(pRating)?'on':'off'}">&#9733;</span>`).join(''):'';
       const subObj=(lu.subs||[]).find(s=>(typeof s==='object'?s.out:s)===pid);
@@ -2170,6 +2396,8 @@ function addSubSlot(key){if(!lineups[key])lineups[key]={formation:'',slots:{},su
 function delSub(key,idx){if(!lineups[key])return;lineups[key].subs.splice(idx,1);sv('uc_lineups_v7',lineups);renderLineup(getClub(clubId),getData(clubId),getData(clubId).matchdays.find(m=>m.id===mdId));}
 async function saveLineup(key){
   const lu=lineups[key]||{formation:'',slots:{},subs:[]};
+  const formSel=$('lp-form');
+  if(formSel&&formSel.value) lu.formation=formSel.value;
   document.querySelectorAll('.slot-sel').forEach(s=>{lu.slots[s.dataset.slot]=s.value;});
   const subInEls=document.querySelectorAll('.sub-in-sel'),subOutEls=document.querySelectorAll('.sub-out-sel'),subMinEls=document.querySelectorAll('.sub-min-inp');
   lu.subs=[];subInEls.forEach((el,i)=>{lu.subs.push({in:el.value,out:subOutEls[i]?.value||'',minute:subMinEls[i]?.value||''});});
@@ -2244,7 +2472,7 @@ function mpH(p,club,md,open,eligible=true){
 async function doRate(cid,mid,pid,stars){const md=getData(cid)?.matchdays?.find(m=>m.id===mid);if(!md||!isRatingOpen(md)||!isEligible(pid))return;await rateP(cid,mid,pid,stars);reRenderMp(pid);writeLog('player_rated','rating',{player_id:pid,matchday_id:mid,details:{stars}});renderLineup(getClub(cid),getData(cid),md);}
 function reRenderMp(pid){const club=getClub(clubId),data=getData(clubId),md=data?.matchdays?.find(m=>m.id===mdId);if(!club||!data||!md)return;const p=data.players.find(pl=>pl.id===pid),el=$('mp_'+pid);if(el&&p)el.outerHTML=mpH(p,club,md,isRatingOpen(md),isEligible(pid));}
 function toggleCmts(pid){expPlayer=expPlayer===pid?null:pid;const club=getClub(clubId),data=getData(clubId),md=data?.matchdays?.find(m=>m.id===mdId);const p=data.players.find(pl=>pl.id===pid),el=$('mp_'+pid);if(el&&p)el.outerHTML=mpH(p,club,md,isRatingOpen(md),isEligible(pid));}
-async function postCmt(pid){const md=getData(clubId)?.matchdays?.find(m=>m.id===mdId);if(!md||!isRatingOpen(md))return;const inp=$('ci_'+pid),text=inp?.value?.trim();if(!text)return;const key=clubId+'_'+mdId+'_'+pid;if(!comments[key])comments[key]=[];comments[key].push({id:Date.now().toString(),fanId,text,ts:new Date().toLocaleString()});sv('uc_cmts_v7',comments);writeLog('comment_posted','comment',{player_id:pid,matchday_id:mdId});reRenderMp(pid);}
+async function postCmt(pid){const md=getData(clubId)?.matchdays?.find(m=>m.id===mdId);if(!md||!isRatingOpen(md))return;const inp=$('ci_'+pid),text=inp?.value?.trim();if(!text)return;const key=clubId+'_'+mdId+'_'+pid;if(!comments[key])comments[key]=[];let newId=Date.now().toString();if(dbConnected){const row=await dbPostComment(clubId,mdId,pid,text);if(row&&row.id)newId=row.id;}comments[key].push({id:newId,fanId,text,ts:new Date().toLocaleString()});sv('uc_cmts_v7',comments);writeLog('comment_posted','comment',{player_id:pid,matchday_id:mdId});if(inp)inp.value='';reRenderMp(pid);}
 async function delCmt(pid,cid){if(dbConnected){ await dbDeleteComment(cid); }const key=clubId+'_'+mdId+'_'+pid;if(comments[key])comments[key]=comments[key].filter(c=>c.id!==cid);sv('uc_cmts_v7',comments);writeLog('comment_deleted','comment',{player_id:pid,matchday_id:mdId});reRenderMp(pid);}
 
 // =====================================================================
@@ -2386,12 +2614,8 @@ async function savePlayerEdit(){
     if(piNewPhoto===null){
       p.img=null;
     } else {
-      try{
-        const compressed=await compressImage(piNewPhoto,1200,1200,0.92);
-        p.img=compressed;
-      } catch(e){
-        p.img=piNewPhoto;
-      }
+      // Full HD — use raw original, no compression
+      p.img=piNewPhotoFile ? await readFileAsDataURL(piNewPhotoFile) : piNewPhoto;
     }
   }
   if(dbConnected){
@@ -2484,6 +2708,7 @@ function execConfirm(){cm('m-confirm');if(typeof _confirmCb==='function')_confir
 function openEditClub(){
   const club=getClub(clubId);newLogoData=undefined;
   $('ec-name').value=club.name;$('ec-short').value=club.short;$('ec-tag').value=club.tagline;
+  $('ec-desc').value=clubDescriptions[clubId]||'';
   ['p','a','h'].forEach((k,i)=>{const col=['primary','accent','highlight'][i];$('ec-'+k+'-c').value=club[col]||'#000';$('ec-'+k+'-h').value=club[col]||'#000';});
   updClubPrev();$('club-logo-pre').innerHTML=`<img class="logo-pre" src="${club.logo||DEF_LOGOS[club.id]||''}"/>`;$('rm-logo-btn').style.display=club.logo?'':'none';openModal('m-club');
 }
@@ -2498,27 +2723,20 @@ async function saveClub(){
   clubs[idx].primary=$('ec-p-h').value||clubs[idx].primary;clubs[idx].accent=$('ec-a-h').value||clubs[idx].accent;clubs[idx].highlight=$('ec-h-h').value||clubs[idx].highlight;
   if(newLogoData!==undefined)clubs[idx].logo=newLogoData;
   sv('uc_clubs_v7',clubs);
-  if(dbConnected){ await dbSaveClub(clubId,clubs[idx]); }
+  const descText=$('ec-desc').value.trim();
+  clubDescriptions[clubId]=descText;sv('uc_clubdesc_v7',clubDescriptions);
+  if(dbConnected){ await dbSaveClub(clubId,clubs[idx]); await saveClubDescToDB(clubId,descText); }
   document.documentElement.style.setProperty('--c-accent',clubs[idx].accent);document.documentElement.style.setProperty('--c-primary',clubs[idx].primary);$('hdr-club').textContent=clubs[idx].short;
   writeLog('club_updated','club',{});cm('m-club');renderClub();showToast('Club Updated','Club details saved.');
 }
 
-// Compress a base64 dataURL to a max width/height JPEG at the given quality (0–1)
-function compressImage(dataUrl,maxW,maxH,quality){
+// Save original image as-is (full quality, no compression or resizing)
+function readFileAsDataURL(file){
   return new Promise(function(resolve,reject){
-    const img=new Image();
-    img.onload=function(){
-      let w=img.width,h=img.height;
-      if(w>maxW){h=Math.round(h*maxW/w);w=maxW;}
-      if(h>maxH){w=Math.round(w*maxH/h);h=maxH;}
-      const canvas=document.createElement('canvas');
-      canvas.width=w;canvas.height=h;
-      const ctx=canvas.getContext('2d');
-      ctx.drawImage(img,0,0,w,h);
-      resolve(canvas.toDataURL('image/jpeg',quality));
-    };
-    img.onerror=reject;
-    img.src=dataUrl;
+    const r=new FileReader();
+    r.onload=function(e){resolve(e.target.result);};
+    r.onerror=reject;
+    r.readAsDataURL(file);
   });
 }
 
@@ -2542,20 +2760,12 @@ async function savePp(){
   if(newPicData===null){
     p.img=null;
   } else {
-    // Compress image to max 400x400 JPEG at 75% quality before saving as base64
-    try{
-      const compressed=await compressImage(newPicData,1200,1200,0.92);
-      p.img=compressed;
-    } catch(e){
-      p.img=newPicData; // fallback: use original if compression fails
-    }
+    // Full HD — use raw original, no compression
+    p.img=newPicFile ? await readFileAsDataURL(newPicFile) : newPicData;
   }
   if(dbConnected){
     try{ await dbSavePlayer(editingPicPid,p); }
-    catch(e){
-      showToast('Save Error','Could not save photo: '+e.message);
-      return;
-    }
+    catch(e){ showToast('Save Error','Could not save photo: '+e.message); return; }
   }
   sv('uc_data_v7',clubData);
   cm('m-pp');renderPlayers();showToast('Photo Updated','Player photo saved.');
@@ -2768,38 +2978,48 @@ function renderHubStandings(){
   panel.innerHTML=html||'<div class="standings-no-data">No standings data yet.</div>';
 }
 
+let fixClubFilter='all';
+let fixSection='upcoming';
+function switchFixSection(sec){
+  fixSection=sec;
+  ['upcoming','results'].forEach(function(s){
+    var btn=$('fixt-'+s);
+    if(btn){btn.classList.toggle('active',s===sec);}
+  });
+  $('fix-upcoming-panel').style.display=sec==='upcoming'?'':'none';
+  $('fix-results-panel').style.display=sec==='results'?'':'none';
+}
 function renderHubFixtures(){
-  var panel=$('lh-fixtures');if(!panel)return;
-  var all=[];
-  clubs.forEach(function(club){
-    (getData(club.id)||{matchdays:[]}).matchdays.forEach(function(md){
-      all.push({club:club,md:md});
+  var filterBar=$('fix-filter-bar');
+  if(!filterBar)return;
+  // Build club filter pills
+  var pillHtml='<button class="fix-pill'+(fixClubFilter==='all'?' active':'')+'" onclick="setFixFilter(\'all\')">All</button>';
+  clubs.forEach(function(cl){
+    pillHtml+='<button class="fix-pill'+(fixClubFilter===cl.id?' active':'')+'" style="'+(fixClubFilter===cl.id?'background:'+cl.primary+';color:#fff;border-color:'+cl.primary:'')+ '" onclick="setFixFilter(\''+cl.id+'\')">'+cl.short+'</button>';
+  });
+  filterBar.innerHTML=pillHtml;
+  var targetClubs=fixClubFilter==='all'?clubs:clubs.filter(function(c){return c.id===fixClubFilter;});
+  var upcomingHtml='',resultsHtml='';
+  targetClubs.forEach(function(club){
+    var mds=(getData(club.id)||{matchdays:[]}).matchdays;
+    var upcoming=[],finished=[],live=[];
+    mds.forEach(function(md){
+      if(md.status==='live') live.push(md);
+      else if(md.status==='finished') finished.push(md);
+      else upcoming.push(md);
     });
-  });
-  if(!all.length){panel.innerHTML='<div class="standings-no-data">No fixtures yet.</div>';return;}
-  var live=[],upcoming=[],finished=[];
-  all.forEach(function(item){
-    if(item.md.status==='live') live.push(item);
-    else if(item.md.status==='finished') finished.push(item);
-    else upcoming.push(item);
-  });
-  function mdNum(item){ return parseInt((item.md.label||'').replace(/\D+/g,''))||0; }
-  upcoming.sort(function(a,b){ return mdNum(a)-mdNum(b); });
-  finished.sort(function(a,b){ return mdNum(a)-mdNum(b); });
-  function renderGroup(label,items,dotColor){
-    if(!items.length)return'';
-    var h='<div class="fixture-group-label" style="color:'+dotColor+'"><span style="width:7px;height:7px;border-radius:50%;background:'+dotColor+';display:inline-block"></span>'+label+'</div>';
-    items.forEach(function(item){
-      var club=item.club,md=item.md;
-      var paused=isMatchPaused(md);
-      var isLive=md.status==='live';
-      h+='<div class="fixture-card'+(isLive?(paused?' paused-f':' live-f'):'')+'">';
+    function mdNum(md){return parseInt((md.label||'').replace(/\D+/g,''))||0;}
+    upcoming.sort(function(a,b){return mdNum(a)-mdNum(b);});
+    finished.sort(function(a,b){return mdNum(a)-mdNum(b);});
+    function fixCard(md){
+      var paused=isMatchPaused(md),isLive=md.status==='live',isDone=md.status==='finished';
+      var h='<div class="fixture-card'+(isLive?(paused?' paused-f':' live-f'):'')+'" onclick="viewMdFromLogsHub(\''+club.id+'\',\''+md.id+'\',\'fixtures\')" style="cursor:pointer">';
       h+='<div style="display:flex;align-items:center;gap:10px">';
       h+='<img src="'+logoSrc(club)+'" style="width:34px;height:34px;object-fit:contain;border-radius:8px;flex-shrink:0"/>';
       h+='<div style="flex:1;min-width:0">';
-      h+='<div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:'+club.accent+';margin-bottom:3px">'+md.label+'</div>';
-      h+='<div style="font-family:Oswald,sans-serif;font-size:16px;font-weight:700;color:#1a1a2e">'+club.short+' <span style="color:#ccc;font-size:12px;font-weight:400">vs</span> '+md.opponent+'</div>';
-      if(md.venue) h+='<div style="font-size:11px;color:#aaa;margin-top:2px">&#128205; '+md.venue+'</div>';
+      h+='<div style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:'+club.accent+';margin-bottom:2px">'+md.label+' &middot; '+club.short+'</div>';
+      h+='<div style="font-family:Oswald,sans-serif;font-size:15px;font-weight:700;color:#1a1a2e">'+club.short+' <span style="color:#ccc;font-size:12px;font-weight:400">vs</span> '+md.opponent+'</div>';
+      if(md.venue) h+='<div style="font-size:11px;color:#aaa;margin-top:1px">&#128205; '+md.venue+'</div>';
       if(md.date) h+='<div style="font-size:11px;color:#aaa">&#128197; '+md.date+(md.kickoffTime?' &middot; '+md.kickoffTime:'')+'</div>';
       h+='</div>';
       if(isLive){
@@ -2807,61 +3027,163 @@ function renderHubFixtures(){
         h+='<div style="font-family:Oswald,sans-serif;font-size:22px;font-weight:700;color:'+(paused?'#f39c12':'#e74c3c')+'">'+(md.homeGoals||0)+' - '+(md.awayGoals||0)+'</div>';
         h+=liveBadgeH(md,'font-size:9px');
         h+='</div>';
-      } else if(md.result){
-        h+='<div style="font-family:Oswald,sans-serif;font-size:15px;font-weight:700;color:'+club.accent+';flex-shrink:0">'+md.result+'</div>';
+      } else if(isDone||md.result){
+        h+='<div style="font-family:Oswald,sans-serif;font-size:16px;font-weight:700;color:'+club.accent+';flex-shrink:0">'+(md.result||((md.homeGoals||0)+' - '+(md.awayGoals||0)))+'</div>';
+      } else {
+        h+='<div style="font-size:11px;color:#bbb;flex-shrink:0">Tap for info</div>';
       }
-      h+='</div>';
-      if(isLive){
-        var _col2=paused?'#f39c12':'#e74c3c';
-      h+='<button data-cid="'+club.id+'" data-mid="'+md.id+'" onclick="var b=this;enterClub(b.dataset.cid);setTimeout(function(){enterMd(b.dataset.mid)},60)" style="width:100%;margin-top:10px;padding:8px;border-radius:8px;border:1.5px solid '+_col2+';background:#fff;color:'+_col2+';font-weight:700;font-size:12px;cursor:pointer">View Match &rarr;</button>';
-      }
-      h+='</div>';
-    });
-    return h;
-  }
-  var html='';
-  html+=renderGroup('Live Now',live,'#e74c3c');
-  html+=renderGroup('Upcoming',upcoming,'#4dc8c8');
-  html+=renderGroup('Results',finished,'#aaa');
-  panel.innerHTML=html;
+      h+='</div></div>';
+      return h;
+    }
+    if(live.length||upcoming.length){
+      if(fixClubFilter==='all') upcomingHtml+='<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:'+club.accent+';margin:10px 0 6px 2px">'+club.name+'</div>';
+      live.forEach(function(md){upcomingHtml+=fixCard(md);});
+      upcoming.forEach(function(md){upcomingHtml+=fixCard(md);});
+    }
+    if(finished.length){
+      if(fixClubFilter==='all') resultsHtml+='<div style="font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:'+club.accent+';margin:10px 0 6px 2px">'+club.name+'</div>';
+      finished.forEach(function(md){resultsHtml+=fixCard(md);});
+    }
+  });
+  $('fix-upcoming-panel').innerHTML=upcomingHtml||'<div class="standings-no-data">No upcoming fixtures.</div>';
+  $('fix-results-panel').innerHTML=resultsHtml||'<div class="standings-no-data">No results yet.</div>';
+  switchFixSection(fixSection);
+}
+function setFixFilter(cid){
+  fixClubFilter=cid;
+  renderHubFixtures();
 }
 
+async function openMatchDetail(cid,mid){
+  var club=getClub(cid);
+  var md=(getData(cid)||{matchdays:[]}).matchdays.find(function(m){return m.id===mid;});
+  if(!club||!md)return;
+  // Load scorers/lineup if not already in memory
+  if(!scorers[cid+'_'+mid]&&dbConnected){
+    await loadMatchdayDataFromDB(cid,mid);
+  }
+  var sc=scorers[cid+'_'+mid]||{goals:[],assists:[],cards:[]};
+  var paused=isMatchPaused(md),isLive=md.status==='live',isDone=md.status==='finished';
+  $('mdet-title').textContent=md.label+' — '+club.short+' vs '+md.opponent;
+  var h='';
+  // Header banner
+  h+='<div style="background:'+club.primary+';border-radius:12px;padding:16px 20px;margin-bottom:14px">';
+  h+='<div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">';
+  h+=logoH(club,40);
+  h+='<div style="flex:1"><div style="font-family:Oswald,sans-serif;font-size:18px;font-weight:700;color:#fff">'+club.short+' vs '+md.opponent+'</div>';
+  h+='<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:'+club.accent+';margin-top:2px">'+md.label+'</div></div>';
+  if(isLive||isDone){
+    h+='<div style="text-align:right"><div style="font-family:Oswald,sans-serif;font-size:32px;font-weight:700;color:'+(paused?'#f39c12':isLive?'#e74c3c':club.accent)+'">'+(md.homeGoals||0)+' - '+(md.awayGoals||0)+'</div>';
+    if(isLive) h+=liveBadgeH(md,'display:inline-flex;margin-top:4px');
+    else h+='<div style="font-size:11px;color:rgba(255,255,255,.5);margin-top:2px">Full Time</div>';
+    h+='</div>';
+  }
+  h+='</div>';
+  // Match info
+  if(md.date||md.kickoffTime) h+='<div style="font-size:12px;color:rgba(255,255,255,.6)">&#128197; '+( md.date||'')+(md.kickoffTime?' &middot; '+md.kickoffTime:'')+'</div>';
+  if(md.venue) h+='<div style="font-size:12px;color:rgba(255,255,255,.6);margin-top:3px">&#128205; '+md.venue+'</div>';
+  if(md.result&&!isDone) h+='<div style="font-size:13px;color:'+club.accent+';font-weight:700;margin-top:4px">Result: '+md.result+'</div>';
+  h+='</div>';
+  // Scorers & Assists
+  if(sc.goals&&sc.goals.length){
+    h+='<div style="margin-bottom:12px">';
+    h+='<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#888;margin-bottom:6px">⚽ Goalscorers</div>';
+    sc.goals.forEach(function(g){
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f5f5f5">';
+      h+='<span style="font-size:18px">⚽</span>';
+      h+='<span style="font-weight:700;color:#1a1a2e;flex:1">'+g.name+'</span>';
+      if(g.minute) h+='<span style="font-size:12px;color:#aaa;font-weight:600">'+g.minute+'\'</span>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+  if(sc.assists&&sc.assists.length){
+    h+='<div style="margin-bottom:12px">';
+    h+='<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#888;margin-bottom:6px">🎯 Assists</div>';
+    sc.assists.forEach(function(a){
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f5f5f5">';
+      h+='<span style="font-size:18px">🎯</span>';
+      h+='<span style="font-weight:700;color:#1a1a2e;flex:1">'+a.name+'</span>';
+      if(a.minute) h+='<span style="font-size:12px;color:#aaa;font-weight:600">'+a.minute+'\'</span>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+  if(sc.cards&&sc.cards.length){
+    h+='<div style="margin-bottom:12px">';
+    h+='<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#888;margin-bottom:6px">Cards</div>';
+    sc.cards.forEach(function(c){
+      var isRed=c.type==='red';
+      h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f5f5f5">';
+      h+='<span style="display:inline-block;width:12px;height:16px;border-radius:2px;background:'+(isRed?'#e74c3c':'#f1c40f')+';flex-shrink:0"></span>';
+      h+='<span style="font-weight:700;color:#1a1a2e;flex:1">'+c.name+'</span>';
+      if(c.minute) h+='<span style="font-size:12px;color:#aaa;font-weight:600">'+c.minute+'\'</span>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+  if(!sc.goals?.length&&!sc.assists?.length&&!sc.cards?.length&&(isLive||isDone)){
+    h+='<div style="color:#ccc;font-style:italic;font-size:13px;text-align:center;padding:10px 0">No events logged yet.</div>';
+  }
+  $('mdet-body').innerHTML=h;
+  openModal('m-match-detail');
+}
+
+let statsClubFilter='all';
 function renderHubStats(){
-  var panel=$('lh-stats');if(!panel)return;
-  var statGroups=[
+  var filterBar=$('stats-filter-bar'),panel=$('stats-content');
+  if(!filterBar||!panel){
+    // fallback for old HTML
+    var fp=$('lh-stats');if(!fp)return;
+    fp.innerHTML='<div class="standings-no-data">Please refresh the page.</div>';
+    return;
+  }
+  var pillHtml='<button class="fix-pill'+(statsClubFilter==='all'?' active':'')+'" onclick="setStatsFilter(\'all\')">All</button>';
+  clubs.forEach(function(cl){
+    pillHtml+='<button class="fix-pill'+(statsClubFilter===cl.id?' active':'')+'" style="'+(statsClubFilter===cl.id?'background:'+cl.primary+';color:#fff;border-color:'+cl.primary:'')+'" onclick="setStatsFilter(\''+cl.id+'\')">'+cl.short+'</button>';
+  });
+  filterBar.innerHTML=pillHtml;
+  var statGroupsDef=[
     {key:'goals',label:'Top Scorers',color:'#2ecc71',icon:'<span style="font-size:15px">⚽</span>'},
     {key:'assists',label:'Top Assists',color:'#3d7dd4',icon:ASSIST_SVG},
     {key:'yellowCards',label:'Yellow Cards',color:'#f1c40f',icon:'<svg viewBox="0 0 24 24" width="14" height="16"><rect x="5" y="2" width="14" height="20" rx="2" fill="#f1c40f"/></svg>'},
     {key:'redCards',label:'Red Cards',color:'#e74c3c',icon:'<svg viewBox="0 0 24 24" width="14" height="16"><rect x="5" y="2" width="14" height="20" rx="2" fill="#e74c3c"/></svg>'},
     {key:'cleanSheets',label:'Clean Sheets',color:'#4dc8c8',icon:'<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="#4dc8c8" stroke-width="2"><path d="M20 7L9 18l-5-5"/></svg>'},
   ];
+  var netballGroups=[
+    {key:'goals',label:'Top Scorers',color:'#2ecc71',icon:'🏀'},
+    {key:'assists',label:'Top Assists',color:'#3d7dd4',icon:ASSIST_SVG},
+    {key:'intercepts',label:'Intercepts',color:'#f39c12',icon:'✋'},
+    {key:'attempts',label:'Attempts',color:'#9b59b6',icon:'🎯'},
+  ];
+  var targetClubs=statsClubFilter==='all'?clubs:clubs.filter(function(c){return c.id===statsClubFilter;});
   var html='';
-  statGroups.forEach(function(sg){
-    var allPlayers=[];
-    clubs.forEach(function(club){
-      (getData(club.id)||{players:[]}).players.forEach(function(p){
-        if((p[sg.key]||0)>0) allPlayers.push({player:p,club:club,val:p[sg.key]||0});
+  targetClubs.forEach(function(club){
+    var players=(getData(club.id)||{players:[]}).players;
+    var groups=isNetball(club.id)?netballGroups:statGroupsDef;
+    var clubHtml='';
+    groups.forEach(function(sg){
+      var list=players.filter(function(p){return (p[sg.key]||0)>0;});
+      if(!list.length)return;
+      list.sort(function(a,b){return (b[sg.key]||0)-(a[sg.key]||0);});
+      clubHtml+='<div class="stat-section"><div class="stat-section-title" style="color:'+sg.color+'">'+sg.icon+' '+sg.label+'</div>';
+      list.slice(0,5).forEach(function(p,i){
+        var rClass=i===0?'r1':i===1?'r2':i===2?'r3':'rN';
+        clubHtml+='<div class="stat-rank-item" onclick="openPlayerInfo(\''+p.id+'\',\''+club.id+'\')" style="cursor:pointer">';
+        clubHtml+='<div class="stat-rank-n '+rClass+'">'+(i+1)+'</div>';
+        clubHtml+=avH(p.name,p.img,40,club.primary,club.accent);
+        clubHtml+='<div class="stat-rank-info"><div class="stat-rank-name">'+p.name+'</div><div class="stat-rank-sub">'+p.pos+' &middot; <span style="color:'+club.accent+';font-weight:700">'+club.short+'</span></div></div>';
+        clubHtml+='<div class="stat-rank-val" style="color:'+sg.color+'">'+(p[sg.key]||0)+'</div>';
+        clubHtml+='</div>';
       });
+      clubHtml+='</div>';
     });
-    if(!allPlayers.length)return;
-    allPlayers.sort(function(a,b){return b.val-a.val;});
-    var top=allPlayers.slice(0,5);
-    html+='<div class="stat-section">';
-    html+='<div class="stat-section-title" style="color:'+sg.color+'">'+sg.icon+' '+sg.label+'</div>';
-    top.forEach(function(item,i){
-      var rClass=i===0?'r1':i===1?'r2':i===2?'r3':'rN';
-      var rankLabel=i===0?'1':i===1?'2':i===2?'3':(i+1)+'';
-      html+='<div class="stat-rank-item" onclick="openPlayerInfo(\''+item.player.id+'\',\''+item.club.id+'\')" style="cursor:pointer">';
-      html+='<div class="stat-rank-n '+rClass+'">'+rankLabel+'</div>';
-      html+=avH(item.player.name,item.player.img,40,item.club.primary,item.club.accent);
-      html+='<div class="stat-rank-info"><div class="stat-rank-name">'+item.player.name+'</div><div class="stat-rank-sub">'+item.player.pos+' &middot; <span style="color:'+item.club.accent+';font-weight:700">'+item.club.short+'</span></div></div>';
-      html+='<div class="stat-rank-val" style="color:'+sg.color+'">'+item.val+'</div>';
-      html+='</div>';
-    });
-    html+='</div>';
+    if(!clubHtml)return;
+    html+='<div class="standings-club-block"><div class="standings-club-hdr" style="background:'+club.primary+'"><img src="'+logoSrc(club)+'" style="width:28px;height:28px;object-fit:contain;border-radius:6px;flex-shrink:0"/><div class="standings-club-hdr-name" style="color:'+club.accent+';flex:1">'+club.name+'</div></div>'+clubHtml+'</div>';
   });
   panel.innerHTML=html||'<div class="standings-no-data">No stats logged yet.</div>';
 }
+function setStatsFilter(cid){statsClubFilter=cid;renderHubStats();}
 
 function renderHubLive(){
   var panel=$('lh-live');if(!panel)return;
@@ -2902,7 +3224,7 @@ function renderHubLive(){
       html+='</div>';
     }
     var _lc=paused?'#f39c12':'#e74c3c';
-    html+='<button data-cid="'+club.id+'" data-mid="'+md.id+'" onclick="var b=this;enterClub(b.dataset.cid);setTimeout(function(){enterMd(b.dataset.mid)},60)" style="width:100%;padding:9px;border-radius:9px;border:1.5px solid '+_lc+';background:#fff;color:'+_lc+';font-weight:700;font-size:13px;cursor:pointer">View Live Match &rarr;</button>';
+    html+='<button data-cid="'+club.id+'" data-mid="'+md.id+'" onclick="viewMdFromLogsHub(this.dataset.cid,this.dataset.mid,\'live\')" style="width:100%;padding:9px;border-radius:9px;border:1.5px solid '+_lc+';background:#fff;color:'+_lc+';font-weight:700;font-size:13px;cursor:pointer">View Live Match &rarr;</button>';
     html+='</div>';
   });
   panel.innerHTML=html;
@@ -2929,15 +3251,12 @@ function renderNewsHub(){
     html+='<div><div class="news-club-name" style="color:'+club.primary+'">'+club.short+'</div>';
     html+='<div style="font-size:10px;color:'+club.accent+';font-weight:700;letter-spacing:.5px;text-transform:uppercase">'+club.sport+'</div></div>';
     html+='</div>';
-    headlines.slice(0,5).forEach(function(h){
-      html+='<div class="news-card" data-cid="'+cid+'" onclick="enterClub(this.dataset.cid);switchTab(String.fromCharCode(110,101,119,115))">';
+    headlines.forEach(function(h){
+      html+='<div class="news-card" data-cid="'+cid+'" onclick="viewClubNews(this.dataset.cid,\'newshub\')">';
       html+='<div class="news-card-title">'+h.title+'</div>';
       html+='<div class="news-card-meta"><span style="color:'+club.accent+';font-weight:700">'+club.short+'</span> &bull; '+( h.date||'')+'</div>';
       html+='</div>';
     });
-    html+='<button class="news-see-more" data-cid="'+cid+'" onclick="enterClub(this.dataset.cid);switchTab(String.fromCharCode(110,101,119,115))" style="color:'+club.accent+'">';
-    html+='All '+club.short+' news <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
-    html+='</button>';
     html+='</div>';
   });
   el.innerHTML=html||'<div class="standings-no-data" style="padding:60px">No news posted yet.</div>';
@@ -2949,6 +3268,11 @@ function renderNewsHub(){
 function openLeaderboardHub(){
   showV('leaderboard');
   renderLeaderboardHub('all');
+  if(dbConnected){
+    Promise.all(clubs.map(c=>loadAllRatingsFromDB(c.id))).then(function(){
+      renderLeaderboardHub(lbHubTab||'all');
+    }).catch(function(e){ console.warn('Leaderboard ratings refresh failed:', e); });
+  }
 }
 
 function switchLbTab(cid){
@@ -3005,7 +3329,15 @@ let lightboxIdx = -1;
 
 function openGalleryView(){
   showV('gallery');
+  renderGalleryTabs();
   renderGallery();
+}
+function renderGalleryTabs(){
+  const wrap=$('gal-filter-tabs');if(!wrap)return;
+  const clubBtns=clubs.map(function(c){
+    return '<button class="hub-tab'+(galleryFilter===c.id?' active':'')+'" data-club="'+c.id+'" onclick="setGalleryFilter(\''+c.id+'\')">'+c.short+'</button>';
+  }).join('');
+  wrap.innerHTML='<button class="hub-tab'+(galleryFilter==='all'?' active':'')+'" data-club="all" onclick="setGalleryFilter(\'all\')">All Photos</button>'+clubBtns;
 }
 
 function renderGallery(){
@@ -3024,9 +3356,11 @@ function renderGallery(){
   if(galAdminBtn) galAdminBtn.style.display = isAdmin ? '' : 'none';
 
   if(!filtered.length){
+    const filterClub = galleryFilter==='all' ? null : getClub(galleryFilter);
+    const label = filterClub ? filterClub.short+' photos' : 'photos';
     grid.innerHTML = `<div class="gal-empty">
       <div class="gal-empty-icon">📷</div>
-      <div class="gal-empty-text">${isAdmin ? 'No photos yet' : 'No photos yet'}</div>
+      <div class="gal-empty-text">No ${label} yet</div>
       <div class="gal-empty-sub">${isAdmin ? 'Click + Add Photo to upload the first one' : 'Check back soon!'}</div>
     </div>`;
     return;
@@ -3087,6 +3421,8 @@ function setGalleryFilter(cid){
 function openAddPhoto(){
   $('gp-title').value = '';
   $('gp-date').value = new Date().toISOString().split('T')[0];
+  $('gp-club').innerHTML = '<option value="all">General (All Clubs)</option>' +
+    clubs.map(c=>`<option value="${c.id}">${c.short}</option>`).join('');
   $('gp-club').value = 'all';
   $('gp-preview').innerHTML = '<div style="width:100%;height:160px;background:#f5f5f5;border-radius:10px;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:13px">No photo selected</div>';
   window._gpFile = null;
@@ -3108,7 +3444,6 @@ async function doAddPhoto(){
   const date = $('gp-date').value;
   const clubId2 = $('gp-club').value;
   const file = window._gpFile;
-  if(!title){ showToast('Missing','Enter a photo title.'); return; }
   if(!file){ showToast('Missing','Select a photo file.'); return; }
 
   const reader = new FileReader();
@@ -3130,11 +3465,11 @@ async function doAddPhoto(){
     }
     gallery.unshift(newItem);
     sv('uc_gallery_v7', gallery);
-    writeLog('photo_uploaded', 'gallery', {details:{title}});
+    writeLog('photo_uploaded', 'gallery', {details:{title:title||'(untitled)'}});
     cm('m-add-photo');
     renderGallery();
     renderHome(); // refresh home strip
-    showToast('Photo Saved', title + ' saved to gallery.');
+    showToast('Photo Saved', (title||'Photo') + ' saved to gallery.');
   };
   reader.readAsDataURL(file);
 }

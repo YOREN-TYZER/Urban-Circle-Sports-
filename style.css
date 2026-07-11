@@ -459,7 +459,7 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
 .logs-table th:nth-child(5),.logs-table td:nth-child(5){display:none}
 
 /* Gallery grid */
-.gal-grid{grid-template-columns:repeat(3,1fr)}
+.gal-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 
 /* Stats rank cards */
 .stat-rank-card{padding:11px 13px}
@@ -490,7 +490,7 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
   .pc-stats.netball-stats{grid-template-columns:repeat(5,1fr)}
   .sp-cols{grid-template-columns:1fr 1fr}
   .sp-add{flex-direction:row;flex-wrap:wrap}
-  .gal-grid{grid-template-columns:repeat(3,1fr)}
+  .gal-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 }
 
 /* ── TABLET: 640px+ ─────────────────────────────────────── */
@@ -511,7 +511,7 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
   .edit-grid-2{grid-template-columns:1fr 1fr}
   .mbox.wide{max-width:500px}
   .pp-circle{width:38px;height:38px;font-size:12px}
-  .gal-grid{grid-template-columns:repeat(4,1fr)}
+  .gal-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
   .logs-table th:nth-child(4),.logs-table td:nth-child(4){display:table-cell}
   .logs-table th:nth-child(5),.logs-table td:nth-child(5){display:table-cell}
 }
@@ -528,7 +528,7 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
   .home-tile{width:82px}
   .home-tile-icon{width:62px;height:62px;font-size:28px}
   .home-tile-label{font-size:11px}
-  .gal-grid{grid-template-columns:repeat(5,1fr)}
+  .gal-grid{grid-template-columns:repeat(5,minmax(0,1fr))}
   .pitch-container{max-width:520px}
   .pp-circle{width:40px;height:40px;font-size:13px}
   .mbox{max-width:440px}
@@ -542,7 +542,7 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
   #clubs-grid{grid-template-columns:repeat(3,1fr);gap:22px}
   #players-grid{grid-template-columns:repeat(5,1fr)}
   #matchdays-grid{grid-template-columns:repeat(4,1fr)}
-  .gal-grid{grid-template-columns:repeat(6,1fr)}
+  .gal-grid{grid-template-columns:repeat(6,minmax(0,1fr))}
   .home-tiles{gap:14px}
   .home-tile{width:90px}
   .home-tile-icon{width:68px;height:68px;font-size:30px}
@@ -560,10 +560,10 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
 .gal-filter-btn.active{font-weight:800;color:#fff;border-color:transparent}
 .gal-toolbar{background:#fff;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1.5px solid #e0e4ef}
 .gal-count{font-size:13px;color:#888}
-.gal-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;padding:3px;background:#e8e8e8}
-@media(min-width:600px){.gal-grid{grid-template-columns:repeat(4,1fr)}}
-@media(min-width:900px){.gal-grid{grid-template-columns:repeat(5,1fr)}}
-.gal-item{position:relative;background:#fff;cursor:pointer;overflow:hidden;aspect-ratio:1}
+.gal-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;padding:3px;background:#e8e8e8}
+@media(min-width:600px){.gal-grid{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(min-width:900px){.gal-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}
+.gal-item{position:relative;background:#fff;cursor:pointer;overflow:hidden;aspect-ratio:1;min-width:0}
 .gal-item:hover .gal-img-wrap img{transform:scale(1.06)}
 .gal-item:hover .gal-overlay{opacity:1}
 .gal-img-wrap{position:relative;width:100%;height:100%;background:#f0f0f5}
@@ -747,6 +747,8 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
 }
 .hub-back-btn:hover{background:rgba(255,255,255,.2)}
 .hub-tabs{
+  position:relative;
+  z-index:1;
   display:flex;
   gap:4px;
   padding:0 20px 0;
@@ -787,6 +789,7 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
   content:'';
   position:absolute;
   inset:0;
+  pointer-events:none;
   background:url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
 }
 #view-gallery .gal-grid-wrap{
@@ -1156,3 +1159,10 @@ html{-webkit-text-size-adjust:100%;scroll-behavior:smooth}
   .alb-form-title{font-size:20px}
   .alb-form-sub{margin-bottom:18px}
 }
+/* Fixture / Stats filter pills */
+.fix-pill{padding:6px 14px;border-radius:20px;border:1.5px solid #dde0ec;background:#fff;font-size:12px;font-weight:700;cursor:pointer;transition:all .15s;color:#555}
+.fix-pill.active{background:#1a1a2e;color:#fff;border-color:#1a1a2e}
+
+/* Fixture section toggle (Fixtures / Results) */
+.fix-sect-btn{flex:1;padding:9px 0;border:none;border-bottom:2.5px solid transparent;background:transparent;font-size:13px;font-weight:800;color:#aaa;cursor:pointer;letter-spacing:.5px;transition:all .15s}
+.fix-sect-btn.active{color:#1a1a2e;border-bottom-color:#1a1a2e}

@@ -1,13 +1,6 @@
-
-// =====================================================================
-// SUPABASE CONFIG
-// =====================================================================
 const SUPA_URL = 'https://nsjncrhwhbtzndhrxavr.supabase.co';
 const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5zam5jcmh3aGJ0em5kaHJ4YXZyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA0Njg2NTksImV4cCI6MjA5NjA0NDY1OX0.arTqEq1L5jkiOI8X09DKXb2kaWsuFTrGZWm4QWxm0gM';
 
-// Real admin session (from Supabase Auth), if currently signed in as admin.
-// This is what makes the "logged in as admin" state mean something to the
-// database itself — not just to the app's own UI. See supaAuth* functions.
 let supaSession = ld('uc_session_v1', null);
 
 async function sb(method, table, opts={}) {
@@ -58,13 +51,6 @@ async function sbUpload(bucket, filePath, file) {
   return `${SUPA_URL}/storage/v1/object/public/${bucket}/${filePath}`;
 }
 
-// =====================================================================
-// SUPABASE AUTH (real admin accounts — passwords are hashed and verified
-// server-side by Supabase, never stored or compared in this file).
-// Admins log in with a plain "username" for a familiar UX; under the
-// hood each username maps to a synthetic internal email address, since
-// Supabase Auth accounts are keyed by email.
-// =====================================================================
 function usernameToEmail(username){
   const u = (username||'').trim().toLowerCase().replace(/[^a-z0-9._-]/g,'');
   return u + '@ucsports.internal';
@@ -128,9 +114,6 @@ async function restoreSession(){
   }
 }
 
-// =====================================================================
-// SUPABASE DATA LOADERS
-// =====================================================================
 async function loadClubsFromDB() {
   try {
     const rows = await sb('GET', 'clubs', {select: '*', order: 'sort_order'});
@@ -187,10 +170,6 @@ async function loadClubDataFromDB(cid) {
   } catch(e) { console.warn('DB load club data failed:', e.message); }
 }
 
-// Lightweight version for the home screen: skips the players table entirely
-// (which can carry base64 player photos and is by far the heaviest payload).
-// Used so the home page's live-match banner shows up fast; the full player
-// list backfills moments later via loadClubDataFromDB.
 async function loadClubMatchdaysFromDB(cid) {
   try {
     const [matchdays, headlines] = await Promise.all([
@@ -277,9 +256,6 @@ async function loadStandingsFromDB(cid) {
   }
 }
 
-// Bulk-load scorer rows for every currently-live matchday across all clubs,
-// so the home page can show goal scorers on club cards / live list without
-// needing to enter the matchday first.
 async function loadLiveScorersGlobal() {
   if (!dbConnected) return;
   const liveMids = [];
@@ -539,10 +515,6 @@ async function dbLoginAdmin(username, password) {
   } catch(e) { clearSession(); throw e; }
 }
 
-// Creating a new admin requires the CALLER to already be signed in as a
-// Platform Owner (enforced both here and, more importantly, by the
-// database's RLS policy on admin_profiles — so this can't be spoofed by
-// calling the API directly either).
 async function dbCreateAdmin(admin) {
   const signupResp = await supaAuthSignUp(admin.username, admin.password); // throws on failure
   const newUserId = signupResp.user && signupResp.user.id;
@@ -564,12 +536,9 @@ async function dbGetAdmins() {
   } catch(e) { return []; }
 }
 
-// Flag: are we connected to DB?
 let dbConnected = false;
 async function checkDBConnection() {
-  // Kept for any other callers, but init() no longer uses this separately —
-  // it folds the connectivity check into the first real data fetch (clubs)
-  // to avoid paying for two sequential network round-trips on startup.
+
   try {
     await sb('GET', 'clubs', {select: 'id', limit: 1});
     dbConnected = true;
@@ -579,9 +548,7 @@ async function checkDBConnection() {
   }
 }
 
-// =====================================================================
-// REALTIME (live sync across every connected device — no reload needed)
-// =====================================================================
+
 let supaRT=null;
 const RT_TABLES=['matchdays','scorers','clubs','players','gallery','headlines','comments','ratings','standings','admin_profiles','settings'];
 function initRealtime(){
@@ -694,9 +661,6 @@ async function handleRealtimeChange(table,payload){
   }
 }
 
-// =====================================================================
-// CONSTANTS
-// =====================================================================
 const MAX_ADMINS = 4;
 
 const POSITIONS = {
@@ -831,15 +795,12 @@ const SEED_DATA = {
   ]}
 };
 
-// =====================================================================
-// STATE
-// =====================================================================
 function ld(k,fb){try{return JSON.parse(localStorage.getItem(k))||fb}catch{return fb}}
 function sv(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
 const $ = id=>document.getElementById(id);
 
 let clubs    = ld('uc_clubs_v7',   SEED_CLUBS);
-// Ensure Warriors → Gladiators → Titans order
+
 const CLUB_ORDER=['warriors','gladiators','titans'];
 clubs.sort(function(a,b){
   var ai=CLUB_ORDER.indexOf(a.id),bi=CLUB_ORDER.indexOf(b.id);
@@ -895,19 +856,11 @@ function applyHomeStripVisibility(){
 }
 let dbAdmins=[];
 
-// =====================================================================
-// HELPERS
-// =====================================================================
+
 function getClub(id){return clubs.find(c=>c.id===id)}
 function getData(id){return clubData[id]}
 function isNetball(cid){return getClub(cid||clubId)?.sport==='Netball'}
 
-// =====================================================================
-// EXTERNAL LEAGUE LINKS (ujcampusleague.leaguerepublic.com)
-// Maps a team name typed into our standings table to that exact team's
-// page on the external league site. Falls back to the division's main
-// page if a specific team isn't found (e.g. a newly-joined team).
-// =====================================================================
 const LEAGUE_DIVISION_PAGE = {
   warriors:   'https://ujcampusleague.leaguerepublic.com/fg/1_457102445.html', // Promo League 2026
   gladiators: 'https://ujcampusleague.leaguerepublic.com/fg/1_885235865.html', // Foundation League Stream A
@@ -981,9 +934,7 @@ const LEAGUE_TEAM_LINKS = {
     'UJAP SF NC':'https://ujinternalnetball.leaguerepublic.com/team/399458521/753971556.html'
   }
 };
-// Looks up the best link for a team name typed into our app, with
-// case/whitespace-insensitive exact matching, then a loose partial match,
-// then the division page as a last resort.
+
 function leagueLinkFor(clubId,teamName){
   const map=LEAGUE_TEAM_LINKS[clubId];
   if(!map)return null;
@@ -994,9 +945,7 @@ function leagueLinkFor(clubId,teamName){
   for(const name in map){ const n=norm(name); if(n.includes(target)||target.includes(n)) return map[name]; }
   return LEAGUE_DIVISION_PAGE[clubId]||null;
 }
-// Wraps a team name in a link to its external league page, if one exists
-// for that club. Returns plain (escaped) text if the club isn't on that
-// external league (e.g. netball).
+
 function teamNameLinkH(clubId,teamName){
   const url=leagueLinkFor(clubId,teamName);
   const safe=(teamName||'').replace(/</g,'&lt;');
@@ -1044,12 +993,7 @@ function pausedBreakLabel(md){
   if(dur.sport==='Netball') return 'Break';
   return 'Half-Time';
 }
-// Single source of truth for "what should the live clock show right now"
-// for a given matchday. Used by the matchday banner, the manage-match
-// modal, the home page's Live Now list, and club cards — so they always
-// agree. The clock only exists once an admin has actually pressed
-// "Go Live" (md.matchStartedAt set) — it never starts itself off the
-// scheduled kickoff time.
+
 function ordinalWord(n){
   const words=['First','Second','Third','Fourth','Fifth','Sixth'];
   return words[n-1]||(n+'th');
@@ -1155,9 +1099,6 @@ function statsGridH(p,cid){
   return`<div class="pc-stats ${cls}">${fields.map(f=>`<div class="stat-cell"><div class="stat-num">${computeStatValue(p,f)}</div><div class="stat-lbl">${f.lbl}</div></div>`).join('')}</div>`;
 }
 
-// =====================================================================
-// LOGGING
-// =====================================================================
 function writeLog(action,category,details={}){
   if(dbConnected){ dbWriteLog(action,category,details||{}); }
   logs.unshift({id:Date.now().toString(),action,category,club_id:details.club_id||clubId||null,matchday_id:details.matchday_id||mdId||null,player_id:details.player_id||null,fan_id:fanId,details,ts:new Date().toISOString()});
@@ -1165,9 +1106,7 @@ function writeLog(action,category,details={}){
   sv('uc_logs_v7',logs);
 }
 
-// =====================================================================
-// NOTIFICATIONS
-// =====================================================================
+
 function reqNotifPerm(){if('Notification'in window&&Notification.permission==='default')Notification.requestPermission()}
 function sendNotif(title,body){showToast(title,body);if('Notification'in window&&Notification.permission==='granted'){try{new Notification(title,{body})}catch{}}}
 function showToast(title,body){
@@ -1177,9 +1116,6 @@ function showToast(title,body){
   setTimeout(()=>{el.classList.add('removing');setTimeout(()=>el.remove(),300)},4000);
 }
 
-// =====================================================================
-// RATING WINDOW
-// =====================================================================
 function kickoffMs(md){if(!md.date)return 0;const t=md.kickoffTime||'00:00';return new Date(md.date+'T'+t).getTime()}
 function ratingOpenMs(md){return md.ratingOpenOverride||kickoffMs(md)}
 function ratingCloseMs(md){if(md.forceClose)return 0;const o=ratingOpenMs(md);if(!o)return 0;return o+(md.ratingWindowHrs||24)*3600000}
@@ -1202,9 +1138,6 @@ function ratingOpensIn(md){
   return hrs>24?`in ${Math.floor(hrs/24)}d ${hrs%24}h`:`in ${hrs}h ${mins}m`;
 }
 
-// =====================================================================
-// LIVE TIMER
-// =====================================================================
 function startTimer(md){
   stopTimer();
   if(!md||md.status!=='live')return;
@@ -1274,9 +1207,7 @@ function updateTimerDisplay(md){
     pauseBanner;
 }
 
-// =====================================================================
-// MANAGE MATCH PANEL
-// =====================================================================
+
 let mmInterval = null;
 
 function openManageMatch(){
@@ -1346,8 +1277,6 @@ async function mmAdjustScore(side, delta){
   renderMd();
 }
 
-// Pressing "Go Live" in the status row is the ONLY thing that starts the
-// match clock — it never starts itself off the scheduled kickoff time.
 async function mmSetStatus(status){
   const md = clubData[clubId].matchdays.find(m => m.id === mdId);
   if(!md) return;
@@ -1375,9 +1304,7 @@ async function mmSetStatus(status){
   renderMatchdays();
   updateLiveIndicator();
 }
-// Shortcut shown inside the clock box itself if the match is already
-// marked live but the clock was never started (e.g. data imported some
-// other way) — same effect as pressing the "Go Live" status button.
+
 async function goLiveStart(){
   const md = clubData[clubId]?.matchdays?.find(m => m.id === mdId);
   if(!md) return;
@@ -1422,8 +1349,7 @@ async function resumeTimer(mdId2){
     md2.halfStartedAt=Date.now();
     md2.htPausedTotal=0;
   } else {
-    // A regular mid-half pause (e.g. injury stoppage) — just continue the
-    // same half from where it was paused.
+  
     md2.htPausedTotal=pausedTotalBefore+justPausedSecs;
   }
   md2.htPaused=false;md2.htPauseStart=0;
@@ -1433,20 +1359,14 @@ async function resumeTimer(mdId2){
   showToast('Match Resumed',wasAtHalfBreak?(dur.sport==='Netball'?('Quarter '+md2.currentHalf+' underway!'):(ordinalWord(md2.currentHalf)+' Half underway!')):'Play resumed!');
   refreshClockUI(md2);
 }
-// Re-paints whichever live-clock UI is currently on screen for this match
-// (the matchday banner and/or the manage-match modal can both be open).
+
 function refreshClockUI(md){
   if(mdId===md.id) updateTimerDisplay(md);
   if($('m-manage-match')?.classList.contains('open')) mmRenderClock(md);
   if(document.getElementById('view-home')?.classList.contains('active')) renderHome();
 }
 
-// =====================================================================
-// SCHEDULED CHECKS
-// =====================================================================
-// Thresholds at which fans get a "match starting soon" alert. Each fires
-// once per matchday, with the wording generated from the *actual* time
-// remaining (not a hardcoded string) — e.g. "in 10 minutes" or "in 1 hour".
+
 const NOTIF_THRESHOLDS=[
   {ms:60*60*1000, key:'60m'},
   {ms:30*60*1000, key:'30m'},
@@ -1477,10 +1397,7 @@ function checkScheduledNotifs(){
           }
         });
       }
-      // NOTE: matches never auto-flip to 'live' just because the scheduled
-      // kickoff time arrived — only an admin pressing "Go Live" does that
-      // (see mmSetStatus / goLiveStart). The fan rating window can still
-      // open on schedule independently (see isRatingOpen()).
+     
       const closeMs=ratingCloseMs(md);
       if(closeMs&&now>=closeMs&&md.status==='live'){
         md.status='finished';sv('uc_data_v7',clubData);
@@ -1495,17 +1412,13 @@ function checkScheduledNotifs(){
 }
 // Checked every 10s so the "starts in X minutes" wording stays accurate
 // and live/finished transitions feel near-instant without a page reload.
-setInterval(checkScheduledNotifs,10000);
+setInterval(checkScheduledNotifs,600000);
 function updateLiveIndicator(){
   let anyLive=false;
   clubs.forEach(c=>{(getData(c.id)?.matchdays||[]).forEach(m=>{if(m.status==='live')anyLive=true})});
   $('live-pill').style.display=anyLive?'':'none';
 }
 
-// Ticks the small clocks shown in the home page's "Live Now" list every
-// second, without a full re-render, using the same half-aware clock logic
-// as everywhere else (so halftime hides the number and shows the break
-// label, and the clock only runs once the match has actually gone live).
 let homeLiveClockInterval=null;
 function startHomeLiveClocks(){
   if(homeLiveClockInterval)clearInterval(homeLiveClockInterval);
@@ -1523,9 +1436,6 @@ function tickHomeLiveClocks(){
   });
 }
 
-// =====================================================================
-// UC MAIN LOGO
-// =====================================================================
 function renderBrandLogo(){
   const wrap=$('brand-logo-wrap');
   if(ucLogo)wrap.innerHTML=`<img class="brand-logo" src="${ucLogo}" alt="UC Sports"/>`;
@@ -1549,10 +1459,6 @@ async function saveUcLogo(){
   cm('m-uc-logo');showToast('Logo Updated','Main logo saved successfully.');
 }
 
-// =====================================================================
-// SETTINGS (key/value — currently just the main UC logo, saved to
-// Supabase so it shows up the same on every device, not just this browser)
-// =====================================================================
 async function loadSettingsFromDB(){
   try{
     const rows=await sb('GET','settings',{eq:{key:'uc_logo'},select:'value'});
@@ -1596,9 +1502,6 @@ async function saveTechTeamToDB(cid){
   await dbSaveSetting('techteam_'+cid, JSON.stringify(techTeams[cid]||[]));
 }
 
-// =====================================================================
-// NAV
-// =====================================================================
 function showV(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+id).classList.add('active')}
 function goHome(){clubId=null;mdId=null;stopTimer();$('back-btn').style.display='none';$('hdr-sep').style.display='none';$('hdr-club').style.display='none';document.documentElement.style.removeProperty('--c-accent');document.documentElement.style.removeProperty('--c-primary');showV('home');renderHome();}
 function goBack(){
@@ -1631,9 +1534,7 @@ async function enterClub(id,returnTo){
   $('hdr-club').textContent=c.short;$('hdr-club').style.display='';
   showV('club');renderClub();
 }
-// Open a club's News tab from the Home page's Latest News strip or the News
-// Hub, while remembering to return there on exit instead of always landing
-// on the Home page.
+
 function viewClubNews(cid,returnView){
   enterClub(cid, returnView?{view:returnView}:null);
   switchTab('news');
@@ -1643,8 +1544,7 @@ async function enterMd(id){
   if(dbConnected){ await loadMatchdayDataFromDB(clubId, id); }
   showV('matchday');renderMd();reqNotifPerm();
 }
-// Jump straight to a live match's detail view from the home page —
-// no intermediate club-page flash.
+
 async function goToLiveMatch(cid,mid){
   clubId=cid;mdId=mid;mdReturnTo={view:'home'};activeTab='matchdays';expPlayer=null;spOpen=true;lpOpen=true;
   const c=getClub(cid);if(!c)return;
@@ -1659,9 +1559,7 @@ async function goToLiveMatch(cid,mid){
   $('hdr-club').textContent=c.short;$('hdr-club').style.display='';
   showV('matchday');renderMd();reqNotifPerm();
 }
-// Open a match's full detail view from within the Logs Hub (Fixtures or Live
-// tab) while remembering to return to that same hub tab on exit, instead of
-// dropping the user onto the club's Matchdays tab.
+
 async function viewMdFromLogsHub(cid,mid,hubTab){
   clubId=cid;mdId=mid;mdReturnTo={view:'logshub',tab:hubTab||'fixtures'};activeTab='matchdays';expPlayer=null;spOpen=true;lpOpen=true;
   const c=getClub(cid);if(!c)return;
@@ -1678,9 +1576,6 @@ async function viewMdFromLogsHub(cid,mid,hubTab){
 }
 function openLogsView(){showV('logs');renderLogs();}
 
-// =====================================================================
-// ADMIN
-// =====================================================================
 function handleAdminClick(){
   if(isAdmin){showConfirm('Logout','Log out of admin mode?','Yes, Logout',function(){isAdmin=false;currentAdmin=null;clearSession();updAB();refreshView();});}
   else openModal('m-admin');
@@ -1774,9 +1669,6 @@ function updAB(){
 }
 function refreshView(){const v=document.querySelector('.view.active');if(!v)return;if(v.id==='view-home')renderHome();else if(v.id==='view-club')renderClub();else if(v.id==='view-matchday')renderMd();else if(v.id==='view-logs')renderLogs();}
 
-// =====================================================================
-// HOME
-// =====================================================================
 const GOAL_SVG='⚽';
 const ASSIST_SVG='🎯';
 function goalIconFor(club){return GOAL_SVG;}
@@ -1815,7 +1707,6 @@ function renderHome(){
   var galAdminBtn = document.getElementById('gal-add-btn-wrap');
   if(galAdminBtn) galAdminBtn.style.display = isAdmin ? '' : 'none';
 
-  // Gallery preview strip — show last 4 photos on home page
   var strip = $('home-gallery-strip');
   var preview = $('home-gallery-preview');
   if(strip && preview && gallery.length > 0){
@@ -1833,8 +1724,6 @@ function renderHome(){
     strip.style.display = 'none';
   }
 
-  // News preview strip — show the latest few headlines across all clubs.
-  // (The full, unabridged list for every club lives in the News Hub itself.)
   var newsStrip = $('home-news-strip');
   var newsPreview = $('home-news-preview');
   if(newsStrip && newsPreview){
@@ -1908,16 +1797,13 @@ function clubCardH(club){
   </div>`;
 }
 
-// =====================================================================
-// CLUB PAGE
-// =====================================================================
 function renderClub(){
   const club=getClub(clubId),data=getData(clubId);if(!club||!data)return;
   $('club-banner').innerHTML=`<div style="background:${club.primary};border-radius:16px;padding:20px 24px;display:flex;align-items:center;gap:18px;border-bottom:4px solid ${club.accent};position:relative">
     ${logoH(club,76)}<div style="flex:1"><h2>${club.name}</h2><div class="ban-meta" style="color:${club.accent}">${club.sport} &middot; ${data.players.length} Players</div><div class="ban-tag">${club.tagline}</div>${clubDescriptions[clubId]?`<div style="font-size:12.5px;color:rgba(255,255,255,.75);margin-top:6px;line-height:1.5;max-width:520px">${clubDescriptions[clubId]}</div>`:''}</div>
     ${isAdmin?`<button id="edit-club-btn" onclick="openEditClub()">&#9999; Edit Club</button>`:''}
   </div>`;
-  // Sync both tab buttons AND tab panels to activeTab
+
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.remove('active'));
   const activePanel=$('tab-'+activeTab);if(activePanel)activePanel.classList.add('active');
   document.querySelectorAll('.tab-btn').forEach(b=>{const t=b.textContent.toLowerCase(),on=t===activeTab;b.classList.toggle('on',on);b.style.borderColor=on?club.accent:'';b.style.background=on?club.accent:'';b.style.color=on?'#fff':'';});
@@ -1984,9 +1870,7 @@ function delPlayer(pid){
   });
 }
 
-// =====================================================================
-// TECHNICAL TEAM (STAFF)
-// =====================================================================
+
 let editingStaffId=null, staffNewPhoto, staffNewPhotoFile;
 function renderStaff(){
   const club=getClub(clubId),list=techTeams[clubId]||[];
@@ -2079,8 +1963,7 @@ async function delStaff(id){
     showToast('Staff Removed',`${s?.name||'Staff member'} removed.`);
   });
 }
-// Read-only Technical Team summary shown on a matchday's page, so fans can
-// see the coaching staff behind the lineup, not just the players.
+
 function renderTechTeamPanel(club){
   const panel=$('techteam-md-panel');if(!panel)return;
   const list=techTeams[club.id]||[];
@@ -2177,9 +2060,6 @@ async function delNews(hid){
   });
 }
 
-// =====================================================================
-// MATCHDAY PAGE
-// =====================================================================
 function renderMd(){
   const club=getClub(clubId),data=getData(clubId),md=data?.matchdays?.find(m=>m.id===mdId);
   if(!club||!data||!md)return;
@@ -2377,9 +2257,7 @@ async function delScorer(key,type,idx){
   if(type==='goals') renderMd();
 }
 
-// =====================================================================
-// LINEUP / COURT
-// =====================================================================
+
 const PITCH_W=340,PITCH_H=500;
 function buildPitchSVG(isNB){
   const w=PITCH_W,h=PITCH_H;
@@ -2542,9 +2420,7 @@ async function saveLineup(key){
   sendNotif('Lineup Updated',`${club.short} lineup posted for vs ${md.opponent}.`);
 }
 
-// =====================================================================
-// ELIGIBLE / MD PLAYERS
-// =====================================================================
+
 function getSubPids(lu){return(lu.subs||[]).map(s=>typeof s==='object'?s.in:s).filter(Boolean);}
 function isEligible(pid){
   const key=clubId+'_'+mdId,lu=lineups[key]||{slots:{},subs:[]};
@@ -2606,9 +2482,7 @@ function toggleCmts(pid){expPlayer=expPlayer===pid?null:pid;const club=getClub(c
 async function postCmt(pid){const md=getData(clubId)?.matchdays?.find(m=>m.id===mdId);if(!md||!isRatingOpen(md))return;const inp=$('ci_'+pid),text=inp?.value?.trim();if(!text)return;const key=clubId+'_'+mdId+'_'+pid;if(!comments[key])comments[key]=[];let newId=Date.now().toString();if(dbConnected){const row=await dbPostComment(clubId,mdId,pid,text);if(row&&row.id)newId=row.id;}comments[key].push({id:newId,fanId,text,ts:new Date().toLocaleString()});sv('uc_cmts_v7',comments);writeLog('comment_posted','comment',{player_id:pid,matchday_id:mdId});if(inp)inp.value='';reRenderMp(pid);}
 async function delCmt(pid,cid){if(dbConnected){ await dbDeleteComment(cid); }const key=clubId+'_'+mdId+'_'+pid;if(comments[key])comments[key]=comments[key].filter(c=>c.id!==cid);sv('uc_cmts_v7',comments);writeLog('comment_deleted','comment',{player_id:pid,matchday_id:mdId});reRenderMp(pid);}
 
-// =====================================================================
-// LOGS VIEW
-// =====================================================================
+
 const LOG_COLORS={rating:'log-rating',comment:'log-comment',matchday:'log-matchday',player:'log-player',admin:'log-admin',club:'log-club',scorer:'log-scorer',lineup:'log-lineup'};
 function renderLogs(){
   const clubFilter=$('log-filter-club')?.value||'',catFilter=$('log-filter-cat')?.value||'',search=$('log-search')?.value?.toLowerCase()||'';
@@ -2638,11 +2512,9 @@ function renderLogs(){
 }
 function clearLogs(){showConfirm('Clear All Logs','Delete all activity logs?','Yes, Clear',()=>{logs=[];sv('uc_logs_v7',logs);renderLogs();showToast('Logs Cleared','All logs deleted.');});}
 
-// =====================================================================
-// PLAYER INFO MODAL
-// =====================================================================
+
 function openPhotoViewer(src,name,accent){
-  // Remove any existing viewer
+ 
   var old=$('photo-viewer-overlay');if(old)old.remove();
   var ov=document.createElement('div');
   ov.id='photo-viewer-overlay';
@@ -2767,9 +2639,6 @@ function confirmDeletePlayer(){
   });
 }
 
-// =====================================================================
-// DELETE RATINGS
-// =====================================================================
 function openDelRatings(){
   const md=getData(clubId)?.matchdays?.find(m=>m.id===mdId);
   $('del-md-name').textContent=md?`vs ${md.opponent}`:'this matchday';
@@ -2823,9 +2692,6 @@ function deleteCurrentMatchday(){
   });
 }
 
-// =====================================================================
-// MODALS
-// =====================================================================
 function openModal(id){$(id).classList.add('open');}
 function cm(id){
   $(id).classList.remove('open');
@@ -3026,10 +2892,6 @@ function renderLiveScorerStrip(club, sc, isLive){
 }
 
 
-
-// =====================================================================
-// LOGS HUB
-// =====================================================================
 let logsHubTab = 'standings';
 let lbHubTab = 'all';
 
@@ -3393,9 +3255,6 @@ function renderNewsHub(){
   el.innerHTML=html||'<div class="standings-no-data" style="padding:60px">No news posted yet.</div>';
 }
 
-// =====================================================================
-// LEADERBOARD HUB
-// =====================================================================
 function openLeaderboardHub(){
   showV('leaderboard');
   renderLeaderboardHub('all');
@@ -3452,9 +3311,6 @@ function renderLeaderboardHub(filter){
   el.innerHTML=html;
 }
 
-// =====================================================================
-// GALLERY
-// =====================================================================
 let galleryFilter = 'all';
 let lightboxIdx = -1;
 
@@ -3592,7 +3448,7 @@ async function doAddPhoto(){
       img: base64,
       created: new Date().toISOString()
     };
-    // Save to Supabase first
+  
     if(dbConnected){
       try{
         const dbRow = await dbSaveGalleryItem(newItem);
@@ -3621,10 +3477,6 @@ function delGalleryItem(id){
   });
 }
 
-
-// =====================================================================
-// LIVE DISCIPLINE (Yellow/Red Cards)
-// =====================================================================
 function openDisciplineModal(){
   const data = getData(clubId);
   const players = data ? data.players : [];
@@ -3658,9 +3510,6 @@ function doAddCard(){
   renderPlayers();
 }
 
-// =====================================================================
-// STANDINGS
-// =====================================================================
 async function openStandings(cid){
   if(!standings[cid])standings[cid]=[];
   if(dbConnected){ await loadStandingsFromDB(cid); }
@@ -3790,14 +3639,8 @@ function clearStandings(cid){
   });
 }
 
-// =====================================================================
-// INIT
-// =====================================================================
 async function init(){
-  // Skip the separate "is Supabase reachable" ping — go straight to the
-  // real clubs fetch and treat its success/failure as the connectivity
-  // signal. This removes one full network round-trip from the critical
-  // path before anything can render.
+  
   const ok = await loadClubsFromDB();
   dbConnected = ok;
   if(dbConnected){
@@ -3814,19 +3657,12 @@ async function init(){
       }catch(e){ console.warn('Session restore profile fetch failed:', e.message); clearSession(); }
     }
     checkScheduledNotifs();
-    // Render immediately with just the club shells (logos, names) so the
-    // page is interactive right away instead of staying blank while every
-    // club's players/matchdays/standings/gallery load in the background.
+    
     renderHome();
     reqNotifPerm();
     startHomeLiveClocks();
     initRealtime();
 
-    // Load each club's data independently and re-render as each one
-    // finishes, instead of waiting for every club + every data type to
-    // complete before showing anything. Matchdays load first (light,
-    // no player photos) so the home page's live-match banner appears
-    // almost instantly; full player rosters (with photos) backfill after.
     clubs.forEach(async function(c){
       try{
         await loadClubMatchdaysFromDB(c.id);
@@ -3856,8 +3692,6 @@ async function init(){
 }
 init();
 
-// Register service worker for installable/offline support (PWA).
-// Safe no-op in environments without service worker support.
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker registration failed:', e));

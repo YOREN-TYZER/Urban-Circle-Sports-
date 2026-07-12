@@ -1,0 +1,19 @@
+{
+  "name": "urban-circle-sports",
+  "version": "1.0.0",
+  "description": "Urban Circle Sports fan engagement platform",
+  "scripts": {
+    "ios:add": "npx cap add ios",
+    "ios:open": "npx cap sync ios && npx cap open ios",
+    "android:add": "npx cap add android",
+    "android:open": "npx cap sync android && npx cap open android"
+  },
+  "dependencies": {
+    "@capacitor/core": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0",
+    "@capacitor/ios": "^6.0.0",
+    "@capacitor/android": "^6.0.0"
+  }
+}

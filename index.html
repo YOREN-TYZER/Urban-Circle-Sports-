@@ -2,8 +2,23 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0,viewport-fit=cover"/>
 <title>Urban Circle Sports Platform</title>
+
+<!-- PWA / installable-app support (Android + iOS) -->
+<link rel="manifest" href="manifest.json"/>
+<meta name="theme-color" content="#1d2d5a"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<!-- iOS-specific: Safari doesn't read manifest.json for these, so they're
+     spelled out explicitly. Without these, "Add to Home Screen" on iPhone
+     falls back to the browser icon and shows Safari's UI instead of
+     running full-screen like an app. -->
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="UC Sports"/>
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png"/>
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png"/>
+
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>

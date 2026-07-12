@@ -3855,3 +3855,11 @@ async function init(){
   }
 }
 init();
+
+// Register service worker for installable/offline support (PWA).
+// Safe no-op in environments without service worker support.
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(e => console.warn('Service worker registration failed:', e));
+  });
+}

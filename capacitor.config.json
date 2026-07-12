@@ -1,0 +1,12 @@
+{
+  "appId": "com.urbancircle.sports",
+  "appName": "Urban Circle Sports",
+  "webDir": ".",
+  "backgroundColor": "#1d2d5a",
+  "ios": {
+    "contentInset": "always"
+  },
+  "android": {
+    "backgroundColor": "#1d2d5a"
+  }
+}

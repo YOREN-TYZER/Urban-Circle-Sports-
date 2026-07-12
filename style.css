@@ -16,7 +16,7 @@ button,input,select,textarea{font-family:var(--fb);outline:none}
 ::-webkit-scrollbar-thumb{background:#ccd;border-radius:3px}
 
 /* ── HEADER ─────────────────────────────────── */
-#hdr{position:sticky;top:0;z-index:300;background:rgba(255,255,255,.97);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:58px;gap:8px;box-shadow:var(--shadow)}
+#hdr{position:sticky;top:0;z-index:300;background:rgba(255,255,255,.97);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 14px;padding-top:env(safe-area-inset-top);height:calc(58px + env(safe-area-inset-top));gap:8px;box-shadow:var(--shadow)}
 .brand{display:flex;align-items:center;gap:11px;cursor:pointer;user-select:none;flex-shrink:0}
 .brand-logo{height:42px;width:auto;object-fit:contain;flex-shrink:0}
 .brand-logo-placeholder{width:42px;height:42px;border-radius:10px;background:var(--c-primary);border:2px solid var(--teal);display:flex;align-items:center;justify-content:center;font-family:var(--fh);font-weight:700;font-size:15px;color:var(--teal);letter-spacing:1px}

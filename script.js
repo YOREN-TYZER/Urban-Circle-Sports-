@@ -98,8 +98,7 @@ function clearSession(){
   supaSession = null;
   sv('uc_session_v1', null);
 }
-// On startup, if we have a saved admin session, make sure it's still
-// valid (refreshing it if it's expired) before trusting it.
+
 async function restoreSession(){
   if(!supaSession || !supaSession.refresh_token) return false;
   try{
@@ -661,7 +660,7 @@ async function handleRealtimeChange(table,payload){
   }
 }
 
-const MAX_ADMINS = 4;
+const MAX_ADMINS = 8;
 
 const POSITIONS = {
   Football:['Goalkeeper','Right Back','Centre Back','Left Back','Defensive Mid',

@@ -3,7 +3,7 @@ const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsI
 
 let supaSession = ld('uc_session_v1', null);
 
-async function sb(method, table, opts={}) {
+async function sb(method, table, opts={}, _isRetry) {
   const {eq, data, select, order, limit, upsert, onConflict, neq, in: inFilter} = opts;
   let url = `${SUPA_URL}/rest/v1/${table}`;
   const params = new URLSearchParams();
@@ -29,12 +29,46 @@ async function sb(method, table, opts={}) {
     body: data ? JSON.stringify(data) : undefined
   });
   if (!res.ok && res.status !== 204) {
+    // An admin session token lasts ~1 hour. A live match (plus the rating
+    // window after it) easily runs longer than that, so a signed-in admin's
+    // token can quietly expire mid-match. Without this, every write after
+    // that point (goals, cards, lineup changes) would fail with a 401 and
+    // just get swallowed by a console.warn — invisible to the admin, who'd
+    // reasonably assume everything was saving fine. So: on a 401, try
+    // refreshing the session once and replaying the exact same request
+    // before giving up.
+    if (res.status === 401 && !_isRetry && supaSession && supaSession.refresh_token) {
+      try {
+        const refreshed = await supaAuthRefresh(supaSession.refresh_token);
+        saveSession(refreshed);
+        return await sb(method, table, opts, true);
+      } catch(e) {
+        clearSession();
+        isAdmin=false;currentAdmin=null;
+        if(typeof updAB==='function') updAB();
+        throw new Error('Your admin session expired — please log in again to keep saving changes.');
+      }
+    }
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || err.error || `HTTP ${res.status} on ${table}`);
   }
   if (res.status === 204) return null;
   return res.json();
 }
+
+// Proactively refresh a signed-in admin's session well before it expires,
+// so a long live match never runs into the 401 case above in the first
+// place. Runs quietly in the background; does nothing if not logged in.
+setInterval(async function(){
+  if(!supaSession || !supaSession.refresh_token) return;
+  if(Date.now() < supaSession.expires_at - 5*60*1000) return; // more than 5 min left, nothing to do
+  try{
+    const refreshed = await supaAuthRefresh(supaSession.refresh_token);
+    saveSession(refreshed);
+  }catch(e){
+    console.warn('Background session refresh failed:', e.message);
+  }
+}, 60000);
 
 async function sbUpload(bucket, filePath, file) {
   const res = await fetch(`${SUPA_URL}/storage/v1/object/${bucket}/${filePath}`, {
@@ -154,7 +188,7 @@ async function loadClubDataFromDB(cid) {
       homeGoals: m.home_goals||0, awayGoals: m.away_goals||0,
       ratingWindowHrs: m.rating_window_hrs||24,
       ratingOpenOverride: m.rating_open_override,
-      forceClose: m.force_close||false,
+      forceClose: m.force_close||false, forceOpen: m.force_open||false,
       durationKey: m.duration_key||'90',
       htPaused: m.ht_paused||false,
       htPauseStart: m.ht_pause_start||0,
@@ -181,7 +215,7 @@ async function loadClubMatchdaysFromDB(cid) {
       homeGoals: m.home_goals||0, awayGoals: m.away_goals||0,
       ratingWindowHrs: m.rating_window_hrs||24,
       ratingOpenOverride: m.rating_open_override,
-      forceClose: m.force_close||false,
+      forceClose: m.force_close||false, forceOpen: m.force_open||false,
       durationKey: m.duration_key||'90',
       htPaused: m.ht_paused||false,
       htPauseStart: m.ht_pause_start||0,
@@ -361,7 +395,7 @@ async function dbSaveMatchday(cid, md) {
       home_goals: md.homeGoals||0, away_goals: md.awayGoals||0,
       rating_window_hrs: md.ratingWindowHrs||24,
       rating_open_override: md.ratingOpenOverride||null,
-      force_close: md.forceClose||false, duration_key: md.durationKey||'90',
+      force_close: md.forceClose||false, force_open: md.forceOpen||false, duration_key: md.durationKey||'90',
       ht_paused: md.htPaused||false, ht_pause_start: md.htPauseStart||null, ht_paused_total: md.htPausedTotal||0,
       match_started_at: md.matchStartedAt||null, current_half: md.currentHalf||1,
       half_started_at: md.halfStartedAt||null
@@ -382,37 +416,31 @@ async function dbDeleteMatchday(dbId) {
 }
 
 async function dbSaveScorers(cid, mid, sc) {
-  try {
-    const existing = await sb('GET', 'scorers', {eq: {matchday_id: mid}, select: 'id'});
-    const payload = {goals: sc.goals||[], assists: sc.assists||[], cards: sc.cards||[]};
-    if (existing && existing.length) {
-      await sb('PATCH', 'scorers', {eq: {matchday_id: mid}, data: payload});
-    } else {
-      await sb('POST', 'scorers', {data: {club_id: cid, matchday_id: mid, ...payload}});
-    }
-  } catch(e) { console.warn('dbSaveScorers failed:', e.message); }
+  const existing = await sb('GET', 'scorers', {eq: {matchday_id: mid}, select: 'id'});
+  const payload = {goals: sc.goals||[], assists: sc.assists||[], cards: sc.cards||[]};
+  if (existing && existing.length) {
+    await sb('PATCH', 'scorers', {eq: {matchday_id: mid}, data: payload});
+  } else {
+    await sb('POST', 'scorers', {data: {club_id: cid, matchday_id: mid, ...payload}});
+  }
 }
 
 async function dbSaveLineup(cid, mid, lu) {
-  try {
-    const existing = await sb('GET', 'lineups', {eq: {matchday_id: mid}, select: 'id'});
-    const data = {club_id: cid, matchday_id: mid, formation: lu.formation, slots: lu.slots, subs: lu.subs};
-    if (existing && existing.length) {
-      await sb('PATCH', 'lineups', {eq: {matchday_id: mid}, data});
-    } else {
-      await sb('POST', 'lineups', {data});
-    }
-  } catch(e) { console.warn('dbSaveLineup failed:', e.message); }
+  const existing = await sb('GET', 'lineups', {eq: {matchday_id: mid}, select: 'id'});
+  const data = {club_id: cid, matchday_id: mid, formation: lu.formation, slots: lu.slots, subs: lu.subs};
+  if (existing && existing.length) {
+    await sb('PATCH', 'lineups', {eq: {matchday_id: mid}, data});
+  } else {
+    await sb('POST', 'lineups', {data});
+  }
 }
 
 async function dbPostRating(cid, mid, pid, stars) {
-  try {
-    await sb('POST', 'ratings', {
-      data: {club_id: cid, matchday_id: mid, player_id: pid, fan_id: fanId, stars},
-      upsert: true,
-      onConflict: 'club_id,matchday_id,player_id,fan_id'
-    });
-  } catch(e) { console.warn('dbPostRating failed:', e.message); }
+  await sb('POST', 'ratings', {
+    data: {club_id: cid, matchday_id: mid, player_id: pid, fan_id: fanId, stars},
+    upsert: true,
+    onConflict: 'club_id,matchday_id,player_id,fan_id'
+  });
 }
 async function loadAllRatingsFromDB(cid) {
   try {
@@ -958,7 +986,20 @@ async function rateP(cid,mid,pid,stars){
   ratings[cid+'_'+mid+'_'+pid]={...(ratings[cid+'_'+mid+'_'+pid]||{}),[fanId]:{stars,ts:Date.now()}};
   ratings[cid+'_'+pid]={...(ratings[cid+'_'+pid]||{}),[fanId+'_'+mid]:{stars,ts:Date.now()}};
   sv('uc_ratings_v7',ratings);
-  if(dbConnected){ await dbPostRating(cid,mid,pid,stars); }
+  if(dbConnected){
+    try{
+      await dbPostRating(cid,mid,pid,stars);
+    }catch(e){
+      console.warn('dbPostRating failed, retrying once:',e.message);
+      try{
+        await new Promise(r=>setTimeout(r,1200));
+        await dbPostRating(cid,mid,pid,stars);
+      }catch(e2){
+        console.error('dbPostRating failed twice:',e2.message);
+        showToast('Rating Not Saved',"Your rating didn't reach the server. Check your connection and try tapping the stars again.");
+      }
+    }
+  }
 }
 function rcol(res){
   if(!res)return{fg:'#999',bg:'#f5f5f5'};
@@ -1030,7 +1071,17 @@ function getLiveClockInfo(md){
   }
   const atBreak=!paused&&atCap&&currentHalf<dur.halves;
   const pct=Math.min(100,((cumulativeBase+Math.min(elapsedInHalf,halfSecs))/totalSecs)*100);
-  return {running:true,timeStr,halfLabel,breakLabel,paused,atBreak,pct,dur,currentHalf,halfSecs,elapsedInHalf};
+  return {running:true,timeStr,halfLabel,breakLabel,paused,atBreak,pct,dur,currentHalf,halfSecs,elapsedInHalf,cumulativeBase};
+}
+// Current whole-number match minute (1-indexed, matching how goals are
+// conventionally marked e.g. "12'"), computed straight from the live
+// match clock — used so admins never have to type the minute by hand.
+// Returns null if the match isn't currently live/running.
+function getCurrentMatchMinute(md){
+  const info=getLiveClockInfo(md);
+  if(!info.running||info.paused) return null;
+  const totalSecs=info.cumulativeBase+info.elapsedInHalf;
+  return Math.floor(totalSecs/60)+1;
 }
 function liveBadgeH(md,sz){
   sz=sz||'';
@@ -1117,8 +1168,9 @@ function showToast(title,body){
 
 function kickoffMs(md){if(!md.date)return 0;const t=md.kickoffTime||'00:00';return new Date(md.date+'T'+t).getTime()}
 function ratingOpenMs(md){return md.ratingOpenOverride||kickoffMs(md)}
-function ratingCloseMs(md){if(md.forceClose)return 0;const o=ratingOpenMs(md);if(!o)return 0;return o+(md.ratingWindowHrs||24)*3600000}
+function ratingCloseMs(md){if(md.forceOpen)return Infinity;if(md.forceClose)return 0;const o=ratingOpenMs(md);if(!o)return 0;return o+(md.ratingWindowHrs||24)*3600000}
 function isRatingOpen(md){
+  if(md.forceOpen)return true;
   if(md.forceClose||md.status==='finished')return false;
   if(md.status==='live')return true;
   const now=Date.now(),o=ratingOpenMs(md),c=ratingCloseMs(md);
@@ -1411,12 +1463,75 @@ function checkScheduledNotifs(){
 }
 // Checked every 10s so the "starts in X minutes" wording stays accurate
 // and live/finished transitions feel near-instant without a page reload.
-setInterval(checkScheduledNotifs,600000);
+setInterval(checkScheduledNotifs,15000);
 function updateLiveIndicator(){
   let anyLive=false;
   clubs.forEach(c=>{(getData(c.id)?.matchdays||[]).forEach(m=>{if(m.status==='live')anyLive=true})});
   $('live-pill').style.display=anyLive?'':'none';
+
+  if('setAppBadge' in navigator){
+    if(anyLive) navigator.setAppBadge(1).catch(()=>{});
+    else navigator.clearAppBadge().catch(()=>{});
+  }
+
+  renderPinnedBar();
 }
+
+let pinnedDismissed = ld('uc_pinned_dismissed_v1', []);
+function getLiveMatchesAll(){
+  const out=[];
+  clubs.forEach(c=>{(getData(c.id)?.matchdays||[]).forEach(m=>{ if(m.status==='live') out.push({club:c, md:m}); }); });
+  return out;
+}
+function renderPinnedBar(){
+  const bar=$('pinned-score-bar');if(!bar)return;
+  const liveIds=getLiveMatchesAll().map(x=>x.md.id);
+  pinnedDismissed=pinnedDismissed.filter(id=>liveIds.includes(id));
+  sv('uc_pinned_dismissed_v1',pinnedDismissed);
+
+  const candidates=getLiveMatchesAll().filter(x=>!pinnedDismissed.includes(x.md.id));
+  const visible=candidates.filter(x=>!(clubId===x.club.id&&mdId===x.md.id));
+
+  if(!visible.length){
+    bar.style.display='none';bar.innerHTML='';
+    document.body.classList.remove('has-pinned-bar');
+    return;
+  }
+  const {club,md}=visible[0];
+  const info=getLiveClockInfo(md);
+  const clockTxt=info.running?(info.paused?'HT':info.timeStr):'LIVE';
+  bar.dataset.cid=club.id;bar.dataset.mid=md.id;
+  bar.innerHTML=`<div class="psb-row" onclick="tapPinnedBar(this.parentElement.dataset.cid,this.parentElement.dataset.mid)">
+    <span class="psb-live-dot"></span>
+    <span class="psb-teams">${club.short} vs ${md.opponent||'TBD'}</span>
+    <span class="psb-score">${md.homeGoals||0} - ${md.awayGoals||0}</span>
+    <span class="psb-clock" id="psb-clock-text">${clockTxt}</span>
+    <button class="psb-close" onclick="event.stopPropagation();dismissPinnedBar('${md.id}')">&times;</button>
+  </div>`;
+  bar.style.display='';
+  document.body.classList.add('has-pinned-bar');
+}
+function dismissPinnedBar(mid){
+  if(!pinnedDismissed.includes(mid)) pinnedDismissed.push(mid);
+  sv('uc_pinned_dismissed_v1',pinnedDismissed);
+  renderPinnedBar();
+}
+function tickPinnedBarClock(){
+  const bar=$('pinned-score-bar');if(!bar||bar.style.display==='none')return;
+  const cid=bar.dataset.cid,mid=bar.dataset.mid;if(!cid||!mid)return;
+  const md=getData(cid)?.matchdays?.find(m=>m.id===mid);
+  const clockEl=$('psb-clock-text');if(!md||!clockEl)return;
+  const info=getLiveClockInfo(md);
+  clockEl.textContent=info.running?(info.paused?'HT':info.timeStr):'LIVE';
+}
+setInterval(tickPinnedBarClock,1000);
+function tickScorerMinuteField(){
+  const field=$('sc-m');if(!field||!field.readOnly)return;
+  const md=getData(clubId)?.matchdays?.find(m=>m.id===mdId);if(!md)return;
+  const liveMin=getCurrentMatchMinute(md);
+  if(liveMin!=null) field.value=liveMin;
+}
+setInterval(tickScorerMinuteField,1000);
 
 let homeLiveClockInterval=null;
 function startHomeLiveClocks(){
@@ -1501,14 +1616,21 @@ async function saveTechTeamToDB(cid){
   await dbSaveSetting('techteam_'+cid, JSON.stringify(techTeams[cid]||[]));
 }
 
-function showV(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+id).classList.add('active')}
+function showV(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));$('view-'+id).classList.add('active');renderPinnedBar();}
 function goHome(){clubId=null;mdId=null;stopTimer();$('back-btn').style.display='none';$('hdr-sep').style.display='none';$('hdr-club').style.display='none';document.documentElement.style.removeProperty('--c-accent');document.documentElement.style.removeProperty('--c-primary');showV('home');renderHome();}
+function resetHdrForHub(){
+  $('back-btn').style.display='none';$('hdr-sep').style.display='none';$('hdr-club').style.display='none';
+  document.documentElement.style.removeProperty('--c-accent');document.documentElement.style.removeProperty('--c-primary');
+}
 function goBack(){
   if(mdId){
     mdId=null;stopTimer();
     if(mdReturnTo){
       const rt=mdReturnTo;mdReturnTo=null;
       if(rt.view==='logshub'){showV('logshub');switchLogsTab(rt.tab);return;}
+      if(rt.view==='newshub'){clubId=null;resetHdrForHub();showV('newshub');renderNewsHub();return;}
+      if(rt.view==='gallery'){clubId=null;resetHdrForHub();openGalleryView();return;}
+      if(rt.view==='leaderboard'){clubId=null;resetHdrForHub();openLeaderboardHub();return;}
       if(rt.view==='home'){goHome();return;}
     }
     showV('club');renderClub();
@@ -1516,8 +1638,7 @@ function goBack(){
     const rt=clubReturnTo;clubReturnTo=null;
     if(rt.view==='newshub'){
       clubId=null;stopTimer();
-      $('back-btn').style.display='none';$('hdr-sep').style.display='none';$('hdr-club').style.display='none';
-      document.documentElement.style.removeProperty('--c-accent');document.documentElement.style.removeProperty('--c-primary');
+      resetHdrForHub();
       showV('newshub');renderNewsHub();
     } else {
       goHome();
@@ -1559,8 +1680,8 @@ async function goToLiveMatch(cid,mid){
   showV('matchday');renderMd();reqNotifPerm();
 }
 
-async function viewMdFromLogsHub(cid,mid,hubTab){
-  clubId=cid;mdId=mid;mdReturnTo={view:'logshub',tab:hubTab||'fixtures'};activeTab='matchdays';expPlayer=null;spOpen=true;lpOpen=true;
+async function navigateToMatch(cid,mid,returnCtx){
+  clubId=cid;mdId=mid;mdReturnTo=returnCtx||null;activeTab='matchdays';expPlayer=null;spOpen=true;lpOpen=true;
   const c=getClub(cid);if(!c)return;
   if(dbConnected){
     await loadClubDataFromDB(cid);
@@ -1572,6 +1693,24 @@ async function viewMdFromLogsHub(cid,mid,hubTab){
   $('back-btn').style.display='';$('hdr-sep').style.display='';
   $('hdr-club').textContent=c.short;$('hdr-club').style.display='';
   showV('matchday');renderMd();reqNotifPerm();
+}
+async function viewMdFromLogsHub(cid,mid,hubTab){
+  await navigateToMatch(cid,mid,{view:'logshub',tab:hubTab||'fixtures'});
+}
+function currentViewId(){
+  const v=document.querySelector('.view.active');
+  return v?v.id:'view-home';
+}
+function pinnedBarReturnCtx(){
+  const id=currentViewId();
+  if(id==='view-logshub') return {view:'logshub',tab:logsHubTab};
+  if(id==='view-newshub') return {view:'newshub'};
+  if(id==='view-gallery') return {view:'gallery'};
+  if(id==='view-leaderboard') return {view:'leaderboard'};
+  return {view:'home'};
+}
+async function tapPinnedBar(cid,mid){
+  await navigateToMatch(cid,mid,pinnedBarReturnCtx());
 }
 function openLogsView(){showV('logs');renderLogs();}
 
@@ -2111,13 +2250,16 @@ function renderMd(){
   // Rating status bar
   const bar=$('rating-status-bar'),now=Date.now(),openMs=ratingOpenMs(md),closeMs=ratingCloseMs(md);
   bar.style.display='';
-  if(md.forceClose||md.status==='finished'){
+  if(md.forceOpen){
+    bar.style.cssText='display:;border-color:#2ecc71;background:#f0faf4;color:#2ecc71;padding:11px 14px;border-radius:8px;border:1.5px solid;font-size:13px;font-weight:700;';
+    bar.innerHTML=`Ratings OPEN (reopened by admin)${isAdmin?`<button onclick="closeRatingsOverride('${mdId}')" style="margin-left:10px;padding:3px 10px;border-radius:6px;border:1.5px solid #2ecc71;background:#fff;font-size:11px;cursor:pointer;color:#2ecc71">Close Now</button>`:''}`;
+  } else if(md.forceClose||md.status==='finished'){
     bar.style.cssText='display:;border-color:#ddd;background:#f9f9f9;color:#999;padding:11px 14px;border-radius:8px;border:1.5px solid;font-size:13px;font-weight:700;';
-    bar.innerHTML=`Ratings closed${md.forceClose?' (force-closed)':' (window ended)'}${isAdmin?`<button onclick="openEditMd('${mdId}')" style="margin-left:10px;padding:3px 10px;border-radius:6px;border:1.5px solid #ddd;background:#fff;font-size:11px;cursor:pointer;color:#888">Reopen</button>`:''}`;
+    bar.innerHTML=`Ratings closed${md.forceClose?' (force-closed)':' (window ended)'}${isAdmin?`<button onclick="reopenRatings('${mdId}')" style="margin-left:10px;padding:3px 10px;border-radius:6px;border:1.5px solid #ddd;background:#fff;font-size:11px;cursor:pointer;color:#888">Reopen</button>`:''}`;
   } else if(open){
     const pct=closeMs?Math.max(0,Math.min(100,((now-openMs)/(closeMs-openMs))*100)):0;
     bar.style.cssText=`display:;border-color:#2ecc71;background:#f0faf4;color:#2ecc71;padding:11px 14px;border-radius:8px;border:1.5px solid;font-size:13px;font-weight:700;`;
-    bar.innerHTML=`Ratings OPEN - ${isLive?'Match is live! ':''}${ratingClosesIn(md)}<div style="margin-top:6px;background:#e0f5e9;border-radius:4px;height:4px;overflow:hidden"><div style="width:${pct}%;height:100%;background:#2ecc71;border-radius:4px;transition:width .5s"></div></div>`;
+    bar.innerHTML=`Ratings OPEN - ${isLive?'Match is live! ':''}${ratingClosesIn(md)}<div style="margin-top:6px;background:#e0f5e9;border-radius:4px;height:4px;overflow:hidden"><div style="width:${pct}%;height:100%;background:#2ecc71;border-radius:4px;transition:width .5s"></div></div>${isAdmin?`<button onclick="closeRatingsOverride('${mdId}')" style="margin-left:8px;padding:3px 10px;border-radius:6px;border:1.5px solid #2ecc71;background:#fff;font-size:11px;cursor:pointer;color:#2ecc71">Close Now</button>`:''}`;
   } else {
     bar.style.cssText=`display:;border-color:${club.accent};background:#fafcff;color:${club.accent};padding:11px 14px;border-radius:8px;border:1.5px solid;font-size:13px;font-weight:700;`;
     bar.innerHTML=`Ratings open ${ratingOpensIn(md)||'at kick-off'}${openMs?`<span style="font-weight:400;color:#999"> - ${new Date(openMs).toLocaleString()}</span>`:''}${isAdmin?`<button onclick="openEditMd('${mdId}')" style="margin-left:8px;padding:3px 10px;border-radius:6px;border:1.5px solid ${club.accent};background:#fff;font-size:11px;cursor:pointer;color:${club.accent}">Open now</button>`:''}`;
@@ -2144,16 +2286,46 @@ function renderScorers(club,data,md){
   const isNB=isNetball(clubId);
   const goalLabel=isNB?'Goals':'Goals',assistLabel=isNB?'Assists':'Assists';
 
+  // Groups repeated entries for the same player (e.g. a hat-trick) into a
+  // single row with one minute chip per goal, instead of repeating their
+  // name on a separate line for every goal.
+  function groupEvtsByPlayer(arr){
+    const order=[],map={};
+    arr.forEach((item,i)=>{
+      const k=item.pid||item.name;
+      if(!map[k]){ map[k]={name:item.name,entries:[]}; order.push(k); }
+      map[k].entries.push({minute:item.minute,idx:i});
+    });
+    return order.map(k=>map[k]);
+  }
+  function evtGroupRow(group,type){
+    const arrKey=type==='goal'?'goals':'assists';
+    const chips=group.entries.map(e=>
+      `<span class="se-min-chip">${e.minute?"'"+e.minute:''}${isAdmin?`<button class="se-min-del" onclick="delScorer('${key}','${arrKey}',${e.idx})">&times;</button>`:''}</span>`
+    ).join('');
+    return `<div class="se"><span class="se-icon">${evtIconSvg(type)}</span><span class="se-name">${group.name}</span><span class="se-min-list">${chips}</span></div>`;
+  }
   function evtRow(item,type,i){
     return `<div class="se"><span class="se-icon">${evtIconSvg(type)}</span><span class="se-name">${item.name}</span><span class="se-min">${item.minute?"'"+item.minute:''}</span>${isAdmin?`<button class="se-del" onclick="delScorer('${key}','${type==='goal'?'goals':type==='assist'?'assists':'cards'}',${i})">&times;</button>`:''}</div>`;
   }
 
-  const gH=(sc.goals||[]).length?(sc.goals||[]).map((g,i)=>evtRow(g,'goal',i)).join(''):`<div class="no-se">No goals yet</div>`;
-  const aH=(sc.assists||[]).length?(sc.assists||[]).map((a,i)=>evtRow(a,'assist',i)).join(''):`<div class="no-se">No assists yet</div>`;
+  const gGroups=groupEvtsByPlayer(sc.goals||[]);
+  const aGroups=groupEvtsByPlayer(sc.assists||[]);
+  const gH=gGroups.length?gGroups.map(g=>evtGroupRow(g,'goal')).join(''):`<div class="no-se">No goals yet</div>`;
+  const aH=aGroups.length?aGroups.map(g=>evtGroupRow(g,'assist')).join(''):`<div class="no-se">No assists yet</div>`;
   const cardsArr=sc.cards||[];
   const cH=cardsArr.length?cardsArr.map((cd,i)=>evtRow(cd,cd.type,i)).join(''):`<div class="no-se">No cards yet</div>`;
 
   const opts=players.map(p=>`<option value="${p.id}">${p.name} (#${p.num})</option>`).join('');
+
+  // Auto-fill the minute from the live match clock whenever the match is
+  // actually live — admins no longer need to type it in themselves. If the
+  // match isn't live (e.g. adding a retroactive event to a finished match),
+  // the field stays a normal editable number input.
+  const liveMin=getCurrentMatchMinute(md);
+  const minuteFieldH=liveMin!=null
+    ? `<input id="sc-m" type="number" value="${liveMin}" readonly class="finp" style="width:68px;flex:none;background:#f5f5f5;color:#888" title="Auto-filled from the live match clock"/>`
+    : `<input id="sc-m" type="number" min="1" max="130" placeholder="Min" class="finp" style="width:68px;flex:none"/>`;
 
   $('scorers-panel').innerHTML=`<div class="panel">
     <div class="panel-hdr" onclick="spOpen=!spOpen;renderScorers(getClub(clubId),getData(clubId),getData(clubId).matchdays.find(m=>m.id===mdId))">
@@ -2178,7 +2350,7 @@ function renderScorers(club,data,md){
         </div>
         <div class="sp-add">
           <select id="sc-p" style="flex:2"><option value="">Select Player</option>${opts}</select>
-          <input id="sc-m" type="number" min="1" max="130" placeholder="Min" class="finp" style="width:68px;flex:none"/>
+          ${minuteFieldH}
           <button class="sp-add-btn" style="border-color:${club.accent};color:${club.accent}" onclick="addScorer('${key}')">Add Event</button>
         </div>
       </div>`:''}
@@ -2192,13 +2364,15 @@ function setEvtType(btn){
 async function addScorer(key){
   const activeBtn=document.querySelector('.evt-type-btn.active');
   const type=activeBtn?activeBtn.dataset.type:'goal';
-  const pid=$('sc-p').value,min=$('sc-m').value;
+  const pid=$('sc-p').value;
   if(!pid){showToast('Select a player','Choose who this event is for.');return;}
   const player=getData(clubId).players.find(p=>p.id===pid);
   const p2=clubData[clubId].players.find(p=>p.id===pid);
   if(!scorers[key])scorers[key]={goals:[],assists:[],cards:[]};
   if(!scorers[key].cards)scorers[key].cards=[];
   const md=clubData[clubId].matchdays.find(function(m){return m.id===mdId;});
+  const liveMin=md?getCurrentMatchMinute(md):null;
+  const min=liveMin!=null?liveMin:($('sc-m').value||'');
 
   if(type==='goal'){
     scorers[key].goals.push({pid,name:player.name,minute:min||''});
@@ -2216,7 +2390,12 @@ async function addScorer(key){
   }
 
   if(dbConnected){
-    await dbSaveScorers(clubId,mdId,scorers[key]);
+    try{
+      await dbSaveScorers(clubId,mdId,scorers[key]);
+    }catch(e){
+      try{ await new Promise(r=>setTimeout(r,1200)); await dbSaveScorers(clubId,mdId,scorers[key]); }
+      catch(e2){ showToast('Not Saved',"This event didn't reach the server. Check your connection — it may need to be re-entered."); }
+    }
     if(p2) await dbSavePlayer(pid,p2);
     if(type==='goal' && md){ await dbSaveMatchday(clubId,{...md,_dbId:md._dbId||md.id}); }
   }
@@ -2245,7 +2424,12 @@ async function delScorer(key,type,idx){
     }
   }
   if(dbConnected){
-    await dbSaveScorers(clubId,mdId,scorers[key]);
+    try{
+      await dbSaveScorers(clubId,mdId,scorers[key]);
+    }catch(e){
+      try{ await new Promise(r=>setTimeout(r,1200)); await dbSaveScorers(clubId,mdId,scorers[key]); }
+      catch(e2){ showToast('Not Saved',"This change didn't reach the server. Check your connection and try again."); }
+    }
     if(type==='goals' && md){ await dbSaveMatchday(clubId,{...md,_dbId:md._dbId||md.id}); }
   }
   sv('uc_scorers_v7',scorers);sv('uc_data_v7',clubData);
@@ -2410,13 +2594,25 @@ async function saveLineup(key){
   const subInEls=document.querySelectorAll('.sub-in-sel'),subOutEls=document.querySelectorAll('.sub-out-sel'),subMinEls=document.querySelectorAll('.sub-min-inp');
   lu.subs=[];subInEls.forEach((el,i)=>{lu.subs.push({in:el.value,out:subOutEls[i]?.value||'',minute:subMinEls[i]?.value||''});});
   lineups[key]=lu;
-  if(dbConnected){ await dbSaveLineup(clubId,mdId,lu); }
+  let saveOk=true;
+  if(dbConnected){
+    try{
+      await dbSaveLineup(clubId,mdId,lu);
+    }catch(e){
+      try{ await new Promise(r=>setTimeout(r,1200)); await dbSaveLineup(clubId,mdId,lu); }
+      catch(e2){ saveOk=false; }
+    }
+  }
   sv('uc_lineups_v7',lineups);
   const md=getData(clubId).matchdays.find(m=>m.id===mdId),club=getClub(clubId);
   renderLineup(club,getData(clubId),md);
   writeLog('lineup_saved','lineup',{matchday_id:mdId,details:{formation:lu.formation}});
-  showToast('Lineup Saved',`${club.short} lineup updated!`);
-  sendNotif('Lineup Updated',`${club.short} lineup posted for vs ${md.opponent}.`);
+  if(saveOk){
+    showToast('Lineup Saved',`${club.short} lineup updated!`);
+    sendNotif('Lineup Updated',`${club.short} lineup posted for vs ${md.opponent}.`);
+  } else {
+    showToast('Not Saved',"The lineup didn't reach the server. Check your connection and tap Save again.");
+  }
 }
 
 
@@ -2784,7 +2980,7 @@ function openAddMd(){$('nm-lbl').value='';$('nm-opp').value='';$('nm-venue').val
 async function doAddMd(){
   const lbl=$('nm-lbl').value.trim(),opp=$('nm-opp').value.trim(),venue=$('nm-venue').value.trim(),date=$('nm-date').value,time=$('nm-time').value,res=$('nm-res').value.trim(),dur=$('nm-duration').value;
   if(!lbl||!opp)return;
-  const newMd={id:'md'+Date.now(),label:lbl,opponent:opp,venue,date,kickoffTime:time,result:res,status:'upcoming',homeGoals:0,awayGoals:0,ratingWindowHrs:24,forceClose:false,ratingOpenOverride:null,durationKey:dur,matchStartedAt:0,currentHalf:1,halfStartedAt:0,htPaused:false,htPauseStart:0,htPausedTotal:0};
+  const newMd={id:'md'+Date.now(),label:lbl,opponent:opp,venue,date,kickoffTime:time,result:res,status:'upcoming',homeGoals:0,awayGoals:0,ratingWindowHrs:24,forceClose:false,forceOpen:false,ratingOpenOverride:null,durationKey:dur,matchStartedAt:0,currentHalf:1,halfStartedAt:0,htPaused:false,htPauseStart:0,htPausedTotal:0};
   if(dbConnected){
     const dbMd=await dbSaveMatchday(clubId,newMd);
     if(dbMd){newMd._dbId=dbMd.id;}
@@ -2796,6 +2992,28 @@ async function doAddMd(){
 }
 
 function toggleRatingOverride(){const dur=$('er-duration')?.value||'90';const nbQ=$('netball-quarters-edit');if(nbQ)nbQ.style.display=dur.includes('nb')?'':'none';}
+async function reopenRatings(mid){
+  const md=getData(clubId)?.matchdays?.find(m=>m.id===mid);if(!md)return;
+  showConfirm('Reopen Ratings',`Let fans rate players again for vs ${md.opponent}?`,'Yes, Reopen',async()=>{
+    md.forceOpen=true;md.forceClose=false;
+    sv('uc_data_v7',clubData);
+    if(dbConnected){ await dbSaveMatchday(clubId,{...md,_dbId:md._dbId||md.id}); }
+    writeLog('ratings_reopened','rating',{matchday_id:mid});
+    showToast('Ratings Reopened',`Fans can rate players again for vs ${md.opponent}.`);
+    renderMd();
+  });
+}
+async function closeRatingsOverride(mid){
+  const md=getData(clubId)?.matchdays?.find(m=>m.id===mid);if(!md)return;
+  showConfirm('Close Ratings',`Stop fans from rating players for vs ${md.opponent}?`,'Yes, Close',async()=>{
+    md.forceOpen=false;md.forceClose=true;
+    sv('uc_data_v7',clubData);
+    if(dbConnected){ await dbSaveMatchday(clubId,{...md,_dbId:md._dbId||md.id}); }
+    writeLog('ratings_closed','rating',{matchday_id:mid});
+    showToast('Ratings Closed',`Rating window closed for vs ${md.opponent}.`);
+    renderMd();
+  });
+}
 function openEditMd(mid){
   editMdId=mid;const md=getData(clubId).matchdays.find(m=>m.id===mid);
   $('er-lbl').value=md.label||'';$('er-opp').value=md.opponent||'';$('er-venue').value=md.venue||'';
@@ -2813,7 +3031,7 @@ async function doSaveMdEdit(){
   md.label=$('er-lbl').value.trim()||md.label;md.opponent=$('er-opp').value.trim()||md.opponent;md.venue=$('er-venue').value.trim();
   md.result=$('er-v').value.trim();md.date=$('er-date').value;md.kickoffTime=$('er-time').value;md.status=$('er-status').value;
   md.homeGoals=parseInt($('er-home').value)||0;md.awayGoals=parseInt($('er-away').value)||0;
-  md.ratingWindowHrs=parseInt($('er-window').value)||24;md.forceClose=$('er-force-close').checked;md.durationKey=$('er-duration').value||'90';
+  md.ratingWindowHrs=parseInt($('er-window').value)||24;md.forceClose=$('er-force-close').checked;if(md.forceClose)md.forceOpen=false;md.durationKey=$('er-duration').value||'90';
   md.ratingOpenOverride=roDate?new Date(roDate+'T'+(roTime||'00:00')).getTime():null;
   if(md.forceClose)md.status='finished';
   if(md.status==='live'&&oldStatus!=='live'){

@@ -71,18 +71,35 @@ setInterval(async function(){
 }, 60000);
 
 async function sbUpload(bucket, filePath, file) {
+  const authToken = (supaSession && supaSession.access_token) ? supaSession.access_token : SUPA_KEY;
   const res = await fetch(`${SUPA_URL}/storage/v1/object/${bucket}/${filePath}`, {
     method: 'POST',
     headers: {
       'apikey': SUPA_KEY,
-      'Authorization': 'Bearer ' + SUPA_KEY,
-      'Content-Type': file.type,
+      'Authorization': 'Bearer ' + authToken,
+      'Content-Type': file.type || 'application/octet-stream',
       'x-upsert': 'true'
     },
     body: file
   });
-  if (!res.ok) throw new Error('Upload failed');
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Upload failed (HTTP ${res.status})`);
+  }
   return `${SUPA_URL}/storage/v1/object/public/${bucket}/${filePath}`;
+}
+
+// Shared helper: uploads an image file to Supabase Storage and returns its
+// public URL, instead of embedding the full file as base64 text directly
+// in a database row. Storing megabytes of base64 image data in every
+// player/gallery/staff row is what was making the whole app slow to load
+// under concurrent use — every page view had to pull all that embedded
+// image data through the database itself instead of a lightweight URL
+// that browsers can cache normally.
+async function uploadImageToStorage(file, folder){
+  const ext = (file.name && file.name.includes('.')) ? file.name.split('.').pop().replace(/[^a-zA-Z0-9]/g,'') : 'jpg';
+  const path = `${folder}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+  return await sbUpload('media', path, file);
 }
 
 function usernameToEmail(username){
@@ -165,6 +182,23 @@ async function loadClubsFromDB() {
   } catch(e) { console.warn('DB load clubs failed:', e.message); return false; }
 }
 
+function normalizeMatchdayRow(m){
+  return {
+    ...m, id: m.id, _id: m.id,
+    date: m.match_date, kickoffTime: m.kickoff_time,
+    homeGoals: m.home_goals||0, awayGoals: m.away_goals||0,
+    ratingWindowHrs: m.rating_window_hrs||24,
+    ratingOpenOverride: m.rating_open_override,
+    forceClose: m.force_close||false, forceOpen: m.force_open||false,
+    durationKey: m.duration_key||'90',
+    htPaused: m.ht_paused||false,
+    htPauseStart: m.ht_pause_start||0,
+    htPausedTotal: m.ht_paused_total||0,
+    matchStartedAt: m.match_started_at||0,
+    currentHalf: m.current_half||1,
+    halfStartedAt: m.half_started_at||0
+  };
+}
 async function loadClubDataFromDB(cid) {
   try {
     const [players, matchdays, headlines] = await Promise.all([
@@ -182,21 +216,7 @@ async function loadClubDataFromDB(cid) {
       goalsConceded: p.goals_conceded||0,
       saves: p.saves||0
     }));
-    const normMds = (matchdays||[]).map(m => ({
-      ...m, id: m.id, _id: m.id,
-      date: m.match_date, kickoffTime: m.kickoff_time,
-      homeGoals: m.home_goals||0, awayGoals: m.away_goals||0,
-      ratingWindowHrs: m.rating_window_hrs||24,
-      ratingOpenOverride: m.rating_open_override,
-      forceClose: m.force_close||false, forceOpen: m.force_open||false,
-      durationKey: m.duration_key||'90',
-      htPaused: m.ht_paused||false,
-      htPauseStart: m.ht_pause_start||0,
-      htPausedTotal: m.ht_paused_total||0,
-      matchStartedAt: m.match_started_at||0,
-      currentHalf: m.current_half||1,
-      halfStartedAt: m.half_started_at||0
-    }));
+    const normMds = (matchdays||[]).map(normalizeMatchdayRow);
     clubData[cid] = {players: normPlayers, matchdays: normMds, headlines: headlines||[]};
     sv('uc_data_v7', clubData);
     await Promise.all([loadAllRatingsFromDB(cid), loadClubDescFromDB(cid), loadTechTeamFromDB(cid)]);
@@ -209,21 +229,7 @@ async function loadClubMatchdaysFromDB(cid) {
       sb('GET', 'matchdays', {eq: {club_id: cid}, select: '*', order: 'created_at'}),
       sb('GET', 'headlines', {eq: {club_id: cid}, select: '*', order: 'created_at.desc'})
     ]);
-    const normMds = (matchdays||[]).map(m => ({
-      ...m, id: m.id, _id: m.id,
-      date: m.match_date, kickoffTime: m.kickoff_time,
-      homeGoals: m.home_goals||0, awayGoals: m.away_goals||0,
-      ratingWindowHrs: m.rating_window_hrs||24,
-      ratingOpenOverride: m.rating_open_override,
-      forceClose: m.force_close||false, forceOpen: m.force_open||false,
-      durationKey: m.duration_key||'90',
-      htPaused: m.ht_paused||false,
-      htPauseStart: m.ht_pause_start||0,
-      htPausedTotal: m.ht_paused_total||0,
-      matchStartedAt: m.match_started_at||0,
-      currentHalf: m.current_half||1,
-      halfStartedAt: m.half_started_at||0
-    }));
+    const normMds = (matchdays||[]).map(normalizeMatchdayRow);
     const existing = clubData[cid] || {players:[], matchdays:[], headlines:[]};
     clubData[cid] = {players: existing.players||[], matchdays: normMds, headlines: headlines||[]};
   } catch(e) { console.warn('DB load club matchdays failed:', e.message); }
@@ -621,8 +627,23 @@ async function handleRealtimeChange(table,payload){
       const k=cid+'_'+row.id+'_live';
       if(!notifSent[k]){notifSent[k]=true;sv('uc_notifs_v7',notifSent);sendNotif('Match is LIVE',`${club?club.short:'A team'} vs ${row.opponent||''} - rate now!`);}
     }
+    // Apply the change straight from the pushed row instead of asking the
+    // server for the whole club's data again — every viewer re-fetching
+    // players/matchdays/headlines/ratings on every score update is what
+    // was bogging things down when lots of people were watching a live
+    // match at once. The realtime payload already has everything we need.
+    if(clubData[cid]){
+      const mds=clubData[cid].matchdays||(clubData[cid].matchdays=[]);
+      const idx=mds.findIndex(m=>m.id===row.id);
+      if(payload.eventType==='DELETE'){
+        if(idx>=0) mds.splice(idx,1);
+      } else {
+        const normalized=normalizeMatchdayRow(row);
+        if(idx>=0) mds[idx]=normalized; else mds.push(normalized);
+      }
+      sv('uc_data_v7',clubData);
+    }
     debounceRT('md_'+cid,async function(){
-      await loadClubDataFromDB(cid);
       await loadLiveScorersGlobal();
       checkScheduledNotifs();
       if(clubId===cid&&mdId===row.id){
@@ -630,7 +651,7 @@ async function handleRealtimeChange(table,payload){
         if(fresh){ if(fresh.status==='live') startTimer(fresh); else stopTimer(); }
       }
       refreshAfterRT();
-    });
+    },400);
   } else if(table==='scorers'){
     const mid=row.matchday_id;if(!mid)return;
     if(payload.eventType!=='DELETE'&&row.club_id){
@@ -857,7 +878,7 @@ function requireOwner(actionLabel){
 }
 let expPlayer=null,spOpen=true,lpOpen=true;
 let editingStatsPid=null,editingPicPid=null;
-let newLogoData=undefined,newPicData=undefined,newUcLogoData=undefined;
+let newLogoData=undefined,newLogoFile=undefined,newPicData=undefined,newUcLogoData=undefined,newUcLogoFile=undefined;
 let piNewPhoto=undefined,piNewPhotoFile=undefined,viewingPid=null,editMdId=null;
 let newPicFile=undefined;
 let logsPage=0; const LOGS_PER_PAGE=25;
@@ -1556,19 +1577,29 @@ function renderBrandLogo(){
   else wrap.innerHTML=`<div class="brand-logo-placeholder">UC</div>`;
 }
 function openUcLogoModal(){
-  newUcLogoData=undefined;
+  newUcLogoData=undefined;newUcLogoFile=undefined;
   const wrap=$('uc-logo-preview-wrap');
   wrap.innerHTML=ucLogo?`<img class="uc-logo-preview" src="${ucLogo}" alt="UC Logo"/>`:`<div class="uc-logo-placeholder">UC</div>`;
   openModal('m-uc-logo');
 }
-function onUcLogoUpload(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{newUcLogoData=ev.target.result;$('uc-logo-preview-wrap').innerHTML=`<img class="uc-logo-preview" src="${newUcLogoData}" alt="UC Logo"/>`;};r.readAsDataURL(file);}
-function removeUcLogo(){newUcLogoData=null;$('uc-logo-preview-wrap').innerHTML=`<div class="uc-logo-placeholder">UC</div>`;}
+function onUcLogoUpload(e){const file=e.target.files[0];if(!file)return;newUcLogoFile=file;const r=new FileReader();r.onload=ev=>{newUcLogoData=ev.target.result;$('uc-logo-preview-wrap').innerHTML=`<img class="uc-logo-preview" src="${newUcLogoData}" alt="UC Logo"/>`;};r.readAsDataURL(file);}
+function removeUcLogo(){newUcLogoData=null;newUcLogoFile=undefined;$('uc-logo-preview-wrap').innerHTML=`<div class="uc-logo-placeholder">UC</div>`;}
 async function saveUcLogo(){
-  if(newUcLogoData!==undefined){
-    ucLogo=newUcLogoData;
-    if(ucLogo)localStorage.setItem('uc_main_logo',ucLogo);else localStorage.removeItem('uc_main_logo');
+  if(newUcLogoData===null){
+    ucLogo=null;
+    localStorage.removeItem('uc_main_logo');
     renderBrandLogo();
-    if(dbConnected){ await dbSaveSetting('uc_logo',ucLogo||''); }
+    if(dbConnected){ await dbSaveSetting('uc_logo',''); }
+  } else if(newUcLogoFile){
+    try{
+      ucLogo = await uploadImageToStorage(newUcLogoFile, 'branding');
+      localStorage.setItem('uc_main_logo',ucLogo);
+      renderBrandLogo();
+      if(dbConnected){ await dbSaveSetting('uc_logo',ucLogo); }
+    }catch(e){
+      showToast('Logo Upload Failed', e.message||'Could not upload logo.');
+      return;
+    }
   }
   cm('m-uc-logo');showToast('Logo Updated','Main logo saved successfully.');
 }
@@ -2073,14 +2104,20 @@ async function doSaveStaff(){
     if(s){
       s.name=name;s.role=role;
       if(staffNewPhoto!==undefined){
-        // Full quality — use raw original, no compression, same as player photos
-        s.photo = staffNewPhoto===null ? null : (staffNewPhotoFile ? await readFileAsDataURL(staffNewPhotoFile) : staffNewPhoto);
+        if(staffNewPhoto===null){ s.photo=null; }
+        else if(staffNewPhotoFile){
+          try{ s.photo = await uploadImageToStorage(staffNewPhotoFile, 'staff'); }
+          catch(e){ showToast('Photo Upload Failed', e.message||'Could not upload photo.'); }
+        }
       }
     }
     writeLog('staff_updated','staff',{details:{name,role}});
   } else {
     let photo=null;
-    if(staffNewPhoto){ photo = staffNewPhotoFile ? await readFileAsDataURL(staffNewPhotoFile) : staffNewPhoto; }
+    if(staffNewPhotoFile){
+      try{ photo = await uploadImageToStorage(staffNewPhotoFile, 'staff'); }
+      catch(e){ showToast('Photo Upload Failed', e.message||'Could not upload photo — staff member saved without one.'); }
+    }
     techTeams[clubId].push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),name,role,photo});
     writeLog('staff_added','staff',{details:{name,role}});
   }
@@ -2811,9 +2848,12 @@ async function savePlayerEdit(){
   if(piNewPhoto!==undefined){
     if(piNewPhoto===null){
       p.img=null;
-    } else {
-      // Full HD — use raw original, no compression
-      p.img=piNewPhotoFile ? await readFileAsDataURL(piNewPhotoFile) : piNewPhoto;
+    } else if(piNewPhotoFile){
+      try{
+        p.img = await uploadImageToStorage(piNewPhotoFile, 'players');
+      }catch(e){
+        showToast('Photo Upload Failed', e.message||'Could not upload photo — player details saved without changing the photo.');
+      }
     }
   }
   if(dbConnected){
@@ -2898,14 +2938,14 @@ function showConfirm(title,msg,okLabel,cb){$('confirm-title').textContent=title;
 function execConfirm(){cm('m-confirm');if(typeof _confirmCb==='function')_confirmCb();_confirmCb=null;}
 
 function openEditClub(){
-  const club=getClub(clubId);newLogoData=undefined;
+  const club=getClub(clubId);newLogoData=undefined;newLogoFile=undefined;
   $('ec-name').value=club.name;$('ec-short').value=club.short;$('ec-tag').value=club.tagline;
   $('ec-desc').value=clubDescriptions[clubId]||'';
   ['p','a','h'].forEach((k,i)=>{const col=['primary','accent','highlight'][i];$('ec-'+k+'-c').value=club[col]||'#000';$('ec-'+k+'-h').value=club[col]||'#000';});
   updClubPrev();$('club-logo-pre').innerHTML=`<img class="logo-pre" src="${club.logo||DEF_LOGOS[club.id]||''}"/>`;$('rm-logo-btn').style.display=club.logo?'':'none';openModal('m-club');
 }
-function onLogoUpload(e){const file=e.target.files[0];if(!file)return;const r=new FileReader();r.onload=ev=>{newLogoData=ev.target.result;$('club-logo-pre').innerHTML=`<img class="logo-pre" src="${newLogoData}"/>`;$('rm-logo-btn').style.display='';};r.readAsDataURL(file);}
-function rmLogo(){newLogoData=null;const club=getClub(clubId);$('club-logo-pre').innerHTML=`<img class="logo-pre" src="${DEF_LOGOS[club.id]||''}"/>`;$('rm-logo-btn').style.display='none';}
+function onLogoUpload(e){const file=e.target.files[0];if(!file)return;newLogoFile=file;const r=new FileReader();r.onload=ev=>{newLogoData=ev.target.result;$('club-logo-pre').innerHTML=`<img class="logo-pre" src="${newLogoData}"/>`;$('rm-logo-btn').style.display='';};r.readAsDataURL(file);}
+function rmLogo(){newLogoData=null;newLogoFile=undefined;const club=getClub(clubId);$('club-logo-pre').innerHTML=`<img class="logo-pre" src="${DEF_LOGOS[club.id]||''}"/>`;$('rm-logo-btn').style.display='none';}
 function syncC(k){const v=$('ec-'+k+'-c').value;$('ec-'+k+'-h').value=v;updClubPrev();}
 function syncCH(k){const v=$('ec-'+k+'-h').value;if(/^#[0-9a-fA-F]{6}$/.test(v)){$('ec-'+k+'-c').value=v;updClubPrev();}}
 function updClubPrev(){const name=$('ec-name').value||'Club Name',tag=$('ec-tag').value||'Tagline',pri=$('ec-p-h').value||'#1d2d5a',acc=$('ec-a-h').value||'#4dc8c8';const box=$('ec-prev');box.style.background=pri;box.style.borderColor=acc;$('ec-pname').textContent=name;$('ec-ptag').textContent=tag;$('ec-ptag').style.color=acc;}
@@ -2913,7 +2953,12 @@ async function saveClub(){
   const idx=clubs.findIndex(c=>c.id===clubId);if(idx<0)return;
   clubs[idx].name=$('ec-name').value.trim()||clubs[idx].name;clubs[idx].short=$('ec-short').value.trim()||clubs[idx].short;clubs[idx].tagline=$('ec-tag').value.trim();
   clubs[idx].primary=$('ec-p-h').value||clubs[idx].primary;clubs[idx].accent=$('ec-a-h').value||clubs[idx].accent;clubs[idx].highlight=$('ec-h-h').value||clubs[idx].highlight;
-  if(newLogoData!==undefined)clubs[idx].logo=newLogoData;
+  if(newLogoData===null){
+    clubs[idx].logo=null;
+  } else if(newLogoFile){
+    try{ clubs[idx].logo = await uploadImageToStorage(newLogoFile, 'clubs'); }
+    catch(e){ showToast('Logo Upload Failed', e.message||'Could not upload logo — other club details still saved.'); }
+  }
   sv('uc_clubs_v7',clubs);
   const descText=$('ec-desc').value.trim();
   clubDescriptions[clubId]=descText;sv('uc_clubdesc_v7',clubDescriptions);
@@ -2951,9 +2996,12 @@ async function savePp(){
   if(!p)return;
   if(newPicData===null){
     p.img=null;
-  } else {
-    // Full HD — use raw original, no compression
-    p.img=newPicFile ? await readFileAsDataURL(newPicFile) : newPicData;
+  } else if(newPicFile){
+    try{
+      p.img = await uploadImageToStorage(newPicFile, 'players');
+    }catch(e){
+      showToast('Photo Upload Failed', e.message||'Could not upload photo.');return;
+    }
   }
   if(dbConnected){
     try{ await dbSavePlayer(editingPicPid,p); }
@@ -3655,32 +3703,35 @@ async function doAddPhoto(){
   const file = window._gpFile;
   if(!file){ showToast('Missing','Select a photo file.'); return; }
 
-  const reader = new FileReader();
-  reader.onload = async ev => {
-    const base64 = ev.target.result;
-    const newItem = {
-      id: 'g' + Date.now(),
-      title, date,
-      clubId: clubId2 === 'all' ? null : clubId2,
-      img: base64,
-      created: new Date().toISOString()
-    };
-  
-    if(dbConnected){
-      try{
-        const dbRow = await dbSaveGalleryItem(newItem);
-        if(dbRow){ newItem.id = dbRow.id; }
-      } catch(e){ console.warn('Gallery DB save failed:', e.message); }
-    }
-    gallery.unshift(newItem);
-    sv('uc_gallery_v7', gallery);
-    writeLog('photo_uploaded', 'gallery', {details:{title:title||'(untitled)'}});
-    cm('m-add-photo');
-    renderGallery();
-    renderHome(); // refresh home strip
-    showToast('Photo Saved', (title||'Photo') + ' saved to gallery.');
+  let imgUrl;
+  try{
+    imgUrl = await uploadImageToStorage(file, 'gallery');
+  }catch(e){
+    showToast('Upload Failed', e.message||'Could not upload photo. Check your connection and try again.');
+    return;
+  }
+
+  const newItem = {
+    id: 'g' + Date.now(),
+    title, date,
+    clubId: clubId2 === 'all' ? null : clubId2,
+    img: imgUrl,
+    created: new Date().toISOString()
   };
-  reader.readAsDataURL(file);
+
+  if(dbConnected){
+    try{
+      const dbRow = await dbSaveGalleryItem(newItem);
+      if(dbRow){ newItem.id = dbRow.id; }
+    } catch(e){ console.warn('Gallery DB save failed:', e.message); showToast('Not Saved', "Photo uploaded but the gallery entry didn't save. Try again."); return; }
+  }
+  gallery.unshift(newItem);
+  sv('uc_gallery_v7', gallery);
+  writeLog('photo_uploaded', 'gallery', {details:{title:title||'(untitled)'}});
+  cm('m-add-photo');
+  renderGallery();
+  renderHome(); // refresh home strip
+  showToast('Photo Saved', (title||'Photo') + ' saved to gallery.');
 }
 
 function delGalleryItem(id){

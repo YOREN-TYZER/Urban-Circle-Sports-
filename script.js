@@ -3056,36 +3056,45 @@ function toggleRatingOverride(){const dur=$('er-duration')?.value||'90';const nb
 async function reopenRatings(mid){
   const md=getData(clubId)?.matchdays?.find(m=>m.id===mid);if(!md)return;
   showConfirm('Reopen Ratings',`Let fans rate players again for vs ${md.opponent}?`,'Yes, Reopen',async()=>{
+    const prevOpen=md.forceOpen,prevClose=md.forceClose;
     md.forceOpen=true;md.forceClose=false;
     sv('uc_data_v7',clubData);
-    let ok=true;
-    if(dbConnected){ ok=await dbSaveMatchday(clubId,{...md,_dbId:md._dbId||md.id}); }
-    if(ok){
-      writeLog('ratings_reopened','rating',{matchday_id:mid});
-      showToast('Ratings Reopened',`Fans can rate players again for vs ${md.opponent}.`);
-    } else {
-      md.forceOpen=false;sv('uc_data_v7',clubData);
-      showToast('Not Saved',"This didn't reach the server. If you haven't already, run the reopen-ratings.sql database update, then try again.");
-    }
     renderMd();
+    if(dbConnected){
+      try{
+        await sb('PATCH','matchdays',{eq:{id:md._dbId||md.id},data:{force_open:true,force_close:false}});
+        writeLog('ratings_reopened','rating',{matchday_id:mid});
+        showToast('Ratings Reopened',`Fans can rate players again for vs ${md.opponent}.`);
+      }catch(e){
+        md.forceOpen=prevOpen;md.forceClose=prevClose;sv('uc_data_v7',clubData);renderMd();
+        showToast('Not Saved', e.message || 'Could not reach the server.');
+        console.error('reopenRatings failed:', e);
+      }
+    } else {
+      showToast('Reopened (offline)','Saved on this device only — reconnect to sync to the server.');
+    }
   });
 }
 async function closeRatingsOverride(mid){
   const md=getData(clubId)?.matchdays?.find(m=>m.id===mid);if(!md)return;
   showConfirm('Close Ratings',`Stop fans from rating players for vs ${md.opponent}?`,'Yes, Close',async()=>{
-    const prevForceOpen=md.forceOpen,prevForceClose=md.forceClose;
+    const prevOpen=md.forceOpen,prevClose=md.forceClose;
     md.forceOpen=false;md.forceClose=true;
     sv('uc_data_v7',clubData);
-    let ok=true;
-    if(dbConnected){ ok=await dbSaveMatchday(clubId,{...md,_dbId:md._dbId||md.id}); }
-    if(ok){
-      writeLog('ratings_closed','rating',{matchday_id:mid});
-      showToast('Ratings Closed',`Rating window closed for vs ${md.opponent}.`);
-    } else {
-      md.forceOpen=prevForceOpen;md.forceClose=prevForceClose;sv('uc_data_v7',clubData);
-      showToast('Not Saved',"This didn't reach the server. Check your connection and try again.");
-    }
     renderMd();
+    if(dbConnected){
+      try{
+        await sb('PATCH','matchdays',{eq:{id:md._dbId||md.id},data:{force_open:false,force_close:true}});
+        writeLog('ratings_closed','rating',{matchday_id:mid});
+        showToast('Ratings Closed',`Rating window closed for vs ${md.opponent}.`);
+      }catch(e){
+        md.forceOpen=prevOpen;md.forceClose=prevClose;sv('uc_data_v7',clubData);renderMd();
+        showToast('Not Saved', e.message || 'Could not reach the server.');
+        console.error('closeRatingsOverride failed:', e);
+      }
+    } else {
+      showToast('Closed (offline)','Saved on this device only — reconnect to sync to the server.');
+    }
   });
 }
 function openEditMd(mid){

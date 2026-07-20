@@ -283,11 +283,23 @@ async function loadAdminsFromDB() {
   return true;
 }
 
+function sortStandingsRows(rows, isNB){
+  rows.sort(function(a,b){
+    const pa=isNB?(a.w||0)*2+(a.d||0):(a.w||0)*3+(a.d||0);
+    const pb=isNB?(b.w||0)*2+(b.d||0):(b.w||0)*3+(b.d||0);
+    if(pb!==pa) return pb-pa;
+    const gda=(a.gf||0)-(a.ga||0), gdb=(b.gf||0)-(b.ga||0);
+    if(gdb!==gda) return gdb-gda;
+    return (b.gf||0)-(a.gf||0);
+  });
+  return rows;
+}
 async function loadStandingsFromDB(cid) {
   try {
     const rows = await sb('GET', 'standings', {eq: {club_id: cid}, select: '*', order: 'created_at'});
     if (!standings[cid]) standings[cid] = [];
     standings[cid] = (rows||[]).map(r => ({...r, id: r.id}));
+    sortStandingsRows(standings[cid], isNetball(cid));
     return true;
   } catch(e) {
     console.warn('Could not load standings:', e.message);
@@ -3206,6 +3218,7 @@ function renderHubStandings(){
   var html='';
   clubs.forEach(function(club){
     var rows=standings[club.id]||[],isNB=isNetball(club.id);
+    sortStandingsRows(rows,isNB);
     var hdrs=isNB?['Team','P','W','D','L','F','A','GD','Pts','PCT']:['Team','P','W','D','L','GD','Pts'];
     html+='<div class="standings-club-block">';
     html+='<div class="standings-club-hdr" style="background:'+club.primary+'">';
@@ -3799,6 +3812,7 @@ async function openStandings(cid){
 }
 function renderStandingsModal(cid){
   var club=getClub(cid),rows=standings[cid]||[],isNB=isNetball(cid);
+  sortStandingsRows(rows,isNB);
   $('standings-title').textContent=(club?club.short:'Club')+' Standings';
   $('standings-club-id').value=cid;
   var hdrs=isNB?['Team','P','W','D','L','F','A','GD','Pts','PCT']:['Team','P','W','D','L','GF','GA','GD','Pts'];
@@ -3887,6 +3901,9 @@ async function addStandingRow(cid){
   team=team.trim();
   var isNB=isNetball(cid);
   var row={team:team,p:parseInt(($('st-p')||{}).value)||0,w:parseInt(($('st-w')||{}).value)||0,d:parseInt(($('st-d')||{}).value)||0,l:parseInt(($('st-l')||{}).value)||0,gf:parseInt(($('st-gf')||{}).value)||0,ga:parseInt(($('st-ga')||{}).value)||0};
+  if((row.w+row.d+row.l)!==row.p){
+    showToast('Check Your Numbers',`Played (${row.p}) doesn't match Won+Drawn+Lost (${row.w+row.d+row.l}) for ${team}. Saved anyway — you can edit it.`);
+  }
   if(!standings[cid])standings[cid]=[];
   var idx=standings[cid].findIndex(function(r){return r.team===team;});
   if(idx>=0)standings[cid][idx]=row;else standings[cid].push(row);

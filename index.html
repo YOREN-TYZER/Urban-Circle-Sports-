@@ -617,7 +617,10 @@
   </div>
   <div id="netball-quarters-edit" style="display:none"></div>
   <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;font-weight:600;cursor:pointer">
-    <input id="er-force-close" type="checkbox"/> Force close ratings now
+    <input id="er-force-open" type="checkbox" onchange="if(this.checked)$('er-force-close').checked=false"/> Force open ratings (overrides everything below)
+  </label>
+  <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;font-weight:600;cursor:pointer">
+    <input id="er-force-close" type="checkbox" onchange="if(this.checked)$('er-force-open').checked=false"/> Force close ratings now
   </label>
   <div class="mfoot"><button class="mbtn t" onclick="doSaveMdEdit()">Save</button><button class="mbtn c" onclick="cm('m-edit-md')">Cancel</button></div>
 </div></div>

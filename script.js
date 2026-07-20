@@ -3103,7 +3103,7 @@ function openEditMd(mid){
   $('er-date').value=md.date||'';$('er-time').value=md.kickoffTime||'';$('er-status').value=md.status||'upcoming';
   $('er-duration').value=md.durationKey||'90';$('er-v').value=md.result||'';
   $('er-home').value=md.homeGoals||0;$('er-away').value=md.awayGoals||0;
-  $('er-window').value=md.ratingWindowHrs||24;$('er-force-close').checked=!!md.forceClose;
+  $('er-window').value=md.ratingWindowHrs||24;$('er-force-close').checked=!!md.forceClose;$('er-force-open').checked=!!md.forceOpen;
   if(md.ratingOpenOverride){const d=new Date(md.ratingOpenOverride);$('er-rating-date').value=d.toISOString().split('T')[0];$('er-rating-time').value=d.toTimeString().slice(0,5);}
   else{$('er-rating-date').value='';$('er-rating-time').value='';}
   toggleRatingOverride();openModal('m-edit-md');
@@ -3114,7 +3114,12 @@ async function doSaveMdEdit(){
   md.label=$('er-lbl').value.trim()||md.label;md.opponent=$('er-opp').value.trim()||md.opponent;md.venue=$('er-venue').value.trim();
   md.result=$('er-v').value.trim();md.date=$('er-date').value;md.kickoffTime=$('er-time').value;md.status=$('er-status').value;
   md.homeGoals=parseInt($('er-home').value)||0;md.awayGoals=parseInt($('er-away').value)||0;
-  md.ratingWindowHrs=parseInt($('er-window').value)||24;md.forceClose=$('er-force-close').checked;if(md.forceClose)md.forceOpen=false;md.durationKey=$('er-duration').value||'90';
+  md.ratingWindowHrs=parseInt($('er-window').value)||24;
+  md.forceOpen=$('er-force-open').checked;
+  md.forceClose=$('er-force-close').checked;
+  if(md.forceOpen)md.forceClose=false; // the two overrides can't both be true
+  if(md.forceClose)md.forceOpen=false;
+  md.durationKey=$('er-duration').value||'90';
   md.ratingOpenOverride=roDate?new Date(roDate+'T'+(roTime||'00:00')).getTime():null;
   if(md.forceClose)md.status='finished';
   if(md.status==='live'&&oldStatus!=='live'){

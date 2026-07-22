@@ -219,7 +219,7 @@ async function loadClubDataFromDB(cid) {
     const normMds = (matchdays||[]).map(normalizeMatchdayRow);
     clubData[cid] = {players: normPlayers, matchdays: normMds, headlines: headlines||[]};
     sv('uc_data_v7', clubData);
-    await Promise.all([loadAllRatingsFromDB(cid), loadClubDescFromDB(cid), loadTechTeamFromDB(cid)]);
+    await Promise.all([loadAllRatingsFromDB(cid), loadClubDescFromDB(cid), loadTechTeamFromDB(cid), loadAllLineupsFromDB(cid)]);
   } catch(e) { console.warn('DB load club data failed:', e.message); }
 }
 
@@ -476,6 +476,37 @@ async function loadAllRatingsFromDB(cid) {
   } catch(e) { console.warn('loadAllRatingsFromDB failed:', e.message); }
 }
 
+// Bulk-loads every lineup for a club (not just whichever single matchday
+// happens to be open) so appearance counts ("played in N matches") can be
+// computed accurately from the player's very first matchday onward,
+// instead of only reflecting whichever matchdays this browser session
+// happened to visit.
+async function loadAllLineupsFromDB(cid) {
+  try {
+    const rows = await sb('GET', 'lineups', {eq: {club_id: cid}, select: '*'});
+    (rows||[]).forEach(lu => {
+      lineups[cid+'_'+lu.matchday_id] = {formation: lu.formation||'', slots: lu.slots||{}, subs: lu.subs||[]};
+    });
+    sv('uc_lineups_v7', lineups);
+  } catch(e) { console.warn('loadAllLineupsFromDB failed:', e.message); }
+}
+
+// Counts how many matchdays a player has actually appeared in for a club —
+// started (in the lineup slots) or came on as a substitute — by scanning
+// every loaded lineup, rather than relying on a manually-incremented
+// counter that could drift or double-count when a lineup gets edited.
+function getPlayerAppearances(cid, pid){
+  let count=0;
+  Object.keys(lineups).forEach(k=>{
+    if(k.indexOf(cid+'_')!==0) return;
+    const lu=lineups[k];if(!lu) return;
+    const started=Object.values(lu.slots||{}).includes(pid);
+    const subbedOn=(lu.subs||[]).some(s=>s.in===pid);
+    if(started||subbedOn) count++;
+  });
+  return count;
+}
+
 async function dbPostComment(cid, mid, pid, text) {
   try {
     const rows = await sb('POST', 'comments', {data: {club_id: cid, matchday_id: mid, player_id: pid, fan_id: fanId, text}});
@@ -499,11 +530,17 @@ async function dbWriteLog(action, category, details) {
   } catch(e) { /* silent */ }
 }
 
-async function dbSaveHeadline(cid, title, date) {
+async function dbSaveHeadline(cid, title, date, body) {
   try {
-    const rows = await sb('POST', 'headlines', {data: {club_id: cid, title, date}});
+    const rows = await sb('POST', 'headlines', {data: {club_id: cid, title, date, body: body||''}});
     return Array.isArray(rows) ? rows[0] : rows;
   } catch(e) { console.warn('dbSaveHeadline failed:', e.message); return null; }
+}
+async function dbUpdateHeadline(id, title, date, body) {
+  try {
+    await sb('PATCH', 'headlines', {eq: {id}, data: {title, date, body: body||''}});
+    return true;
+  } catch(e) { console.warn('dbUpdateHeadline failed:', e.message); return false; }
 }
 
 async function dbDeleteHeadline(id) {
@@ -1016,6 +1053,16 @@ function teamNameLinkH(clubId,teamName){
 function compRating(map){const v=Object.values(map||{});return v.length?Math.min(5,v.reduce((s,r)=>s+r.stars,0)/v.length):0}
 function overallRating(cid,pid){return compRating(ratings[cid+'_'+pid]||{})}
 function mdRating(cid,mid,pid){return compRating(ratings[cid+'_'+mid+'_'+pid]||{})}
+// The signed-in fan's OWN rating for this player in this match — distinct
+// from mdRating, which is the average across every fan who's rated them.
+// The interactive star widget must reflect the fan's own vote, not the
+// crowd average, or it looks pre-filled/"already voted" to every new fan
+// and looks like their tap "didn't register" once the average shifts to
+// a different rounded value than what they actually tapped.
+function myRating(cid,mid,pid){
+  const entry=(ratings[cid+'_'+mid+'_'+pid]||{})[fanId];
+  return entry?entry.stars:0;
+}
 async function rateP(cid,mid,pid,stars){
   ratings[cid+'_'+mid+'_'+pid]={...(ratings[cid+'_'+mid+'_'+pid]||{}),[fanId]:{stars,ts:Date.now()}};
   ratings[cid+'_'+pid]={...(ratings[cid+'_'+pid]||{}),[fanId+'_'+mid]:{stars,ts:Date.now()}};
@@ -1051,7 +1098,7 @@ function starsH(val,sz,click,cid,mid,pid){
   return h+'</div>';
 }
 function hvStars(el,hov){el.querySelectorAll('.star').forEach((s,i)=>{s.className='star '+(i<hov?'on':'off')+' click'})}
-function resetStarsEl(el,cid,mid,pid){const v=mdRating(cid,mid,pid);el.querySelectorAll('.star').forEach((s,i)=>{s.className='star '+(i<Math.round(v)?'on':'off')+' click'})}
+function resetStarsEl(el,cid,mid,pid){const v=myRating(cid,mid,pid);el.querySelectorAll('.star').forEach((s,i)=>{s.className='star '+(i<v?'on':'off')+' click'})}
 function avH(name,img,sz,pri,acc){
   const ini=name.split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   const fs=Math.round(sz*.33);
@@ -1134,12 +1181,12 @@ function posCategory(pos){
 }
 function getStatFields(cid, pos){
   if(isNetball(cid)){
-    return [{key:'goals',lbl:'Goals'},{key:'attempts',lbl:'Attempts'},{key:'assists',lbl:'Assists'},{key:'gp',lbl:'Games'},{key:'intercepts',lbl:'Intercepts'}];
+    return [{key:'goals',lbl:'Goals'},{key:'attempts',lbl:'Attempts'},{key:'assists',lbl:'Assists'},{key:'gp',lbl:'Games',computed:true},{key:'intercepts',lbl:'Intercepts'}];
   }
   const cat = posCategory(pos);
   if(cat === 'gk'){
     return [
-      {key:'gp',lbl:'Games'},
+      {key:'gp',lbl:'Games',computed:true},
       {key:'goalsConceded',lbl:'Conceded'},
       {key:'saves',lbl:'Saves'},
       {key:'cleanSheets',lbl:'Clean Sheets'},
@@ -1152,7 +1199,7 @@ function getStatFields(cid, pos){
   }
   if(cat === 'def'){
     return [
-      {key:'gp',lbl:'Games'},
+      {key:'gp',lbl:'Games',computed:true},
       {key:'goals',lbl:'Goals'},
       {key:'assists',lbl:'Assists'},
       {key:'goalsConceded',lbl:'Conceded'},
@@ -1162,16 +1209,19 @@ function getStatFields(cid, pos){
   }
   // Midfielders / Forwards / Wingers / Strikers
   return [
-    {key:'gp',lbl:'Games'},
+    {key:'gp',lbl:'Games',computed:true},
     {key:'goals',lbl:'Goals'},
     {key:'assists',lbl:'Assists'},
     {key:'yellowCards',lbl:'YC'},
     {key:'redCards',lbl:'RC'}
   ];
 }
-function computeStatValue(p, f){
+function computeStatValue(p, f, cid){
+  if(f.key === 'gp'){
+    return cid ? getPlayerAppearances(cid, p.id) : (p.gp||0);
+  }
   if(f.key === 'cleanSheetPct'){
-    const gp = p.gp || 0;
+    const gp = cid ? getPlayerAppearances(cid, p.id) : (p.gp||0);
     const cs = p.cleanSheets || 0;
     return gp > 0 ? Math.round((cs/gp)*100) + '%' : '0%';
   }
@@ -1180,7 +1230,7 @@ function computeStatValue(p, f){
 function statsGridH(p,cid){
   const fields=getStatFields(cid,p.pos);
   const cls=isNetball(cid)?'netball-stats':('football-stats stat-count-'+fields.length);
-  return`<div class="pc-stats ${cls}">${fields.map(f=>`<div class="stat-cell"><div class="stat-num">${computeStatValue(p,f)}</div><div class="stat-lbl">${f.lbl}</div></div>`).join('')}</div>`;
+  return`<div class="pc-stats ${cls}">${fields.map(f=>`<div class="stat-cell"><div class="stat-num">${computeStatValue(p,f,cid)}</div><div class="stat-lbl">${f.lbl}</div></div>`).join('')}</div>`;
 }
 
 function writeLog(action,category,details={}){
@@ -1854,11 +1904,48 @@ function refreshView(){const v=document.querySelector('.view.active');if(!v)retu
 const GOAL_SVG='⚽';
 const ASSIST_SVG='🎯';
 function goalIconFor(club){return GOAL_SVG;}
+// Last word of a full name — used so scoreboards read "Modungwa" instead
+// of the full "Letlhogonolo Vincent Modungwa".
+function lastNameOf(fullName){
+  if(!fullName) return '';
+  const parts=fullName.trim().split(/\s+/);
+  return parts[parts.length-1];
+}
+// Groups a scorers array (goals or assists) by player, so a player with
+// multiple goals shows once with every minute attached — e.g.
+// "Modungwa '10 '11 '12" — instead of their name repeated on separate lines.
+// Same grouping as formatScorersList, but returns structured objects
+// ({name, minutes}) instead of a joined string — for UIs that render one
+// chip/element per player rather than one combined line of text.
+function groupEvtsForChips(arr){
+  if(!arr||!arr.length) return [];
+  const order=[],map={};
+  arr.forEach(g=>{
+    const k=g.pid||g.name;
+    if(!map[k]){ map[k]={name:g.name,minutes:[]}; order.push(k); }
+    if(g.minute) map[k].minutes.push(g.minute);
+  });
+  return order.map(k=>map[k]);
+}
+function formatScorersList(arr){
+  if(!arr||!arr.length) return '';
+  const order=[],map={};
+  arr.forEach(g=>{
+    const k=g.pid||g.name;
+    if(!map[k]){ map[k]={name:g.name,minutes:[]}; order.push(k); }
+    if(g.minute) map[k].minutes.push(g.minute);
+  });
+  return order.map(k=>{
+    const grp=map[k];
+    const mins=grp.minutes.map(m=>"'"+m).join(' ');
+    return lastNameOf(grp.name)+(mins?' '+mins:'');
+  }).join(', ');
+}
 function liveGoalScorersH(club,md,wrapClass){
   const sc=scorers[club.id+'_'+md.id];
   if(!sc||!sc.goals||!sc.goals.length)return'';
   const icon=goalIconFor(club);
-  const names=sc.goals.map(g=>`<b>${g.name}</b>${g.minute?" "+g.minute+"'":''}`).join(', ');
+  const names=formatScorersList(sc.goals);
   return`<div class="${wrapClass}">${icon} ${names}</div>`;
 }
 function renderHome(){
@@ -1922,7 +2009,7 @@ function renderHome(){
       newsStrip.style.display='';
       newsPreview.innerHTML = allNews.slice(0,4).map(function(h){
         var club = getClub(h.clubId);
-        return '<div data-cid="'+h.clubId+'" onclick="viewClubNews(this.dataset.cid,\'home\')" style="display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 13px;margin-bottom:8px;cursor:pointer">'
+        return '<div data-cid="'+h.clubId+'" data-hid="'+h.id+'" onclick="openNewsDetail(this.dataset.cid,this.dataset.hid)" style="display:flex;align-items:center;gap:10px;background:#fff;border:1.5px solid var(--border);border-radius:10px;padding:10px 13px;margin-bottom:8px;cursor:pointer">'
           + '<img src="'+logoSrc(club)+'" style="width:30px;height:30px;object-fit:contain;border-radius:7px;flex-shrink:0"/>'
           + '<div style="flex:1;min-width:0"><div style="font-family:Oswald,sans-serif;font-size:14px;font-weight:700;color:#1a1a2e">'+h.title+'</div>'
           + '<div style="font-size:11px;color:#999"><span style="color:'+club.accent+';font-weight:700">'+club.short+'</span>'+(h.date?' &middot; '+h.date:'')+'</div></div>'
@@ -1946,10 +2033,10 @@ function clubCardH(club){
   const data=getData(club.id),players=data?.players||[],headlines=data?.headlines||[];
   const liveMds=(data?.matchdays||[]).filter(m=>m.status==='live');
   const sorted=[...players].sort((a,b)=>overallRating(club.id,b.id)-overallRating(club.id,a.id));
-  const newsH=headlines.slice(0,2).map(h=>`<div class="news-item" style="border-color:${club.accent}">${h.title}</div>`).join('');
+  const newsH=headlines.slice(0,2).map(h=>`<div class="news-item" style="border-color:${club.accent};cursor:pointer" onclick="openNewsDetail('${club.id}',${h.id})">${h.title}</div>`).join('');
   let lbH='',anyR=false;
   sorted.slice(0,5).forEach((p,i)=>{const r=overallRating(club.id,p.id);if(!r)return;anyR=true;
-    lbH+=`<div class="lb-row" style="${i===0?`background:${club.primary}12`:''}">`+
+    lbH+=`<div class="lb-row" style="${i===0?`background:${club.primary}12`:''};cursor:pointer" onclick="openPlayerInfo('${p.id}','${club.id}')">`+
       `<span class="lb-rank">${['&#127945;','&#129352;','&#129353;','4.','5.'][i]}</span>`+
       avH(p.name,p.img,28,club.primary,club.accent)+
       `<div style="flex:1;min-width:0"><div class="lb-name">${p.name}</div><div class="lb-pos">${p.pos}</div></div>`+
@@ -2064,21 +2151,45 @@ function staffCardH(s,club){
   const imgTag=s.photo
     ?`<img src="${s.photo}" alt="${s.name}" onclick="event.stopPropagation();openPhotoViewer('${s.photo.replace(/'/g,"\\'")}','${s.name.replace(/'/g,"\\'")}','${club.accent}')" style="width:100%;height:100%;object-fit:cover;border-radius:50%;cursor:zoom-in"/>`
     :``;
-  return`<div class="pc" id="stf_${s.id}" ${isAdmin?`onclick="openEditStaff('${s.id}')"`:''}>
+  return`<div class="pc" id="stf_${s.id}" onclick="openStaffProfile('${s.id}')" style="cursor:pointer">
     <div class="pc-head" style="background:${club.primary}">
       <div class="av" style="width:66px;height:66px;border-color:${club.accent};background:${club.primary};color:${club.accent};font-family:'Oswald',sans-serif;font-size:22px;font-weight:700">${imgTag||ini}</div>
       <div class="pc-name">${s.name}</div>
       <div class="pc-meta" style="color:${club.accent}">${s.role||'Staff'}</div>
     </div>
     ${isAdmin?`<div class="pc-actions">
+      <button class="pc-ab" style="border-color:${club.accent};color:${club.accent};flex:1" onclick="event.stopPropagation();openEditStaff('${s.id}')">&#9998; Edit</button>
       <button class="pc-ab" style="border-color:#e74c3c;color:#e74c3c;flex:1" onclick="event.stopPropagation();delStaff('${s.id}')">&#128465; Remove</button>
     </div>`:''}
   </div>`;
 }
+// Fan-facing staff profile — shows photo, role, and background details
+// (qualification, years of experience, bio), same idea as the player
+// profile modal.
+function openStaffProfile(sid){
+  const club=getClub(clubId);
+  const s=(techTeams[clubId]||[]).find(x=>x.id===sid);if(!s)return;
+  const ini=(s.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+  $('sp-modal-title').textContent=s.role||'Staff Profile';
+  $('sp-header-block').style.background=club.primary;
+  const avatarHTML=s.photo
+    ?`<div class="av" style="width:80px;height:80px;border-color:${club.accent};background:${club.primary};flex-shrink:0"><img src="${s.photo}" alt="${s.name}" onclick="openPhotoViewer('${s.photo.replace(/'/g,"\\'")}','${s.name.replace(/'/g,"\\'")}','${club.accent}')" style="width:100%;height:100%;object-fit:cover;border-radius:50%;cursor:zoom-in"/></div>`
+    :`<div class="av" style="width:80px;height:80px;border-color:${club.accent};background:${club.primary};color:${club.accent};font-family:'Oswald',sans-serif;font-size:26px;font-weight:700;flex-shrink:0">${ini}</div>`;
+  $('sp-header-block').innerHTML=`${avatarHTML}
+    <div><div style="font-family:'Oswald',sans-serif;font-size:20px;color:#fff">${s.name}</div>
+      <div style="font-size:13px;font-weight:700;color:${club.accent};margin:3px 0">${s.role||'Staff'}</div>
+      ${s.qualification?`<div style="font-size:12px;color:rgba(255,255,255,.6)">${s.qualification}</div>`:''}
+    </div>`;
+  let dH='';
+  if(s.yearsExp!=null)dH+=`<div class="pi-field"><div class="pi-field-lbl">Experience</div><div style="font-size:14px;color:#333">${s.yearsExp} year${s.yearsExp===1?'':'s'}</div></div>`;
+  dH+=`<div class="pi-field"><div class="pi-field-lbl">Background</div><div style="font-size:14px;color:#333;line-height:1.6;white-space:pre-wrap">${s.bio&&s.bio.trim()?s.bio:'No background details added yet.'}</div></div>`;
+  $('sp-details-block').innerHTML=dH;
+  openModal('m-staff-profile');
+}
 function openAddStaff(){
   editingStaffId=null;staffNewPhoto=undefined;staffNewPhotoFile=undefined;
   $('ns-modal-title').textContent='Add Staff Member';$('ns-save-btn').textContent='Add Staff';
-  $('ns-name').value='';$('ns-role').value='';
+  $('ns-name').value='';$('ns-role').value='';$('ns-qual').value='';$('ns-years').value='';$('ns-bio').value='';
   $('ns-pre-wrap').innerHTML=`<div class="pp-pre-av">?</div>`;$('rm-ns-btn').style.display='none';
   openModal('m-add-staff');
 }
@@ -2087,6 +2198,7 @@ function openEditStaff(sid){
   editingStaffId=sid;staffNewPhoto=undefined;staffNewPhotoFile=undefined;
   $('ns-modal-title').textContent='Edit Staff Member';$('ns-save-btn').textContent='Save Changes';
   $('ns-name').value=s.name;$('ns-role').value=s.role||'';
+  $('ns-qual').value=s.qualification||'';$('ns-years').value=s.yearsExp||'';$('ns-bio').value=s.bio||'';
   const ini=(s.name||'?').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
   $('ns-pre-wrap').innerHTML=s.photo?`<img class="pp-pre" src="${s.photo}"/>`:`<div class="pp-pre-av">${ini}</div>`;
   $('rm-ns-btn').style.display=s.photo?'':'none';
@@ -2110,12 +2222,13 @@ function rmStaffPhoto(){
 }
 async function doSaveStaff(){
   const name=$('ns-name').value.trim(),role=$('ns-role').value.trim();
+  const qualification=$('ns-qual').value.trim(),yearsExp=$('ns-years').value?parseInt($('ns-years').value):null,bio=$('ns-bio').value.trim();
   if(!name)return;
   if(!techTeams[clubId])techTeams[clubId]=[];
   if(editingStaffId){
     const s=techTeams[clubId].find(x=>x.id===editingStaffId);
     if(s){
-      s.name=name;s.role=role;
+      s.name=name;s.role=role;s.qualification=qualification;s.yearsExp=yearsExp;s.bio=bio;
       if(staffNewPhoto!==undefined){
         if(staffNewPhoto===null){ s.photo=null; }
         else if(staffNewPhotoFile){
@@ -2131,7 +2244,7 @@ async function doSaveStaff(){
       try{ photo = await uploadImageToStorage(staffNewPhotoFile, 'staff'); }
       catch(e){ showToast('Photo Upload Failed', e.message||'Could not upload photo — staff member saved without one.'); }
     }
-    techTeams[clubId].push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),name,role,photo});
+    techTeams[clubId].push({id:Date.now().toString(36)+Math.random().toString(36).slice(2,6),name,role,photo,qualification,yearsExp,bio});
     writeLog('staff_added','staff',{details:{name,role}});
   }
   sv('uc_techteam_v7',techTeams);
@@ -2192,8 +2305,8 @@ function renderMatchdays(){
     const{fg,bg}=rcol(md.result),key=clubId+'_'+md.id,sc=scorers[key]||{goals:[],assists:[]};
     const isLive=md.status==='live',open=isRatingOpen(md),dur=getDuration(md);
     let sprev='';
-    if(sc.goals?.length)sprev+=`<div>${GOAL_SVG}<span>${sc.goals.map(g=>g.name+(g.minute?"'"+g.minute:'')).join(', ')}</span></div>`;
-    if(sc.assists?.length)sprev+=`<div>${ASSIST_SVG}<span>${sc.assists.map(a=>a.name+(a.minute?"'"+a.minute:'')).join(', ')}</span></div>`;
+    if(sc.goals?.length)sprev+=`<div>${GOAL_SVG}<span>${formatScorersList(sc.goals)}</span></div>`;
+    if(sc.assists?.length)sprev+=`<div>${ASSIST_SVG}<span>${formatScorersList(sc.assists)}</span></div>`;
     const liveScore=isLive?`<div style="display:flex;align-items:center;gap:8px;margin:6px 0;background:#fff8f8;border-radius:8px;padding:7px 12px;border:1.5px solid rgba(231,76,60,.2)">
       <span style="font-family:'Oswald',sans-serif;font-size:24px;font-weight:700;color:#1a1a2e">${md.homeGoals||0}</span>
       <span style="font-size:12px;color:#ccc;font-weight:700">-</span>
@@ -2234,9 +2347,9 @@ function delMd(mid){
 function renderNews(){
   const data=getData(clubId),headlines=data?.headlines||[];
   if(!headlines.length){$('news-list').innerHTML=`<div style="color:#ccc;font-style:italic;padding:20px 0">No news yet.</div>`;return;}
-  $('news-list').innerHTML=headlines.map(h=>`<div class="news-row">
+  $('news-list').innerHTML=headlines.map(h=>`<div class="news-row" style="cursor:pointer" onclick="openNewsDetail('${clubId}',${h.id})">
     <div><div class="nr-title">${h.title}</div><div class="nr-date">${h.date}</div></div>
-    ${isAdmin?`<button class="nr-del" onclick="delNews(${h.id})">x</button>`:''}
+    ${isAdmin?`<button class="nr-del" onclick="event.stopPropagation();openEditNews(${h.id})" style="margin-right:4px">&#9998;</button><button class="nr-del" onclick="event.stopPropagation();delNews(${h.id})">x</button>`:''}
   </div>`).join('');
 }
 async function delNews(hid){
@@ -2293,8 +2406,8 @@ function renderMd(){
       </div>
     </div>
     ${isLive&&sc.goals?.length?`<div style="margin-top:10px;padding-top:10px;border-top:1px solid rgba(255,255,255,.08);display:flex;gap:7px;flex-wrap:wrap">
-      ${sc.goals.map(g=>`<span style="font-size:11px;background:rgba(255,255,255,.08);border-radius:6px;padding:3px 8px;color:#ddd">${GOAL_SVG} ${g.name}${g.minute?"'"+g.minute:''}</span>`).join('')}
-      ${(sc.assists||[]).map(a=>`<span style="font-size:11px;background:rgba(255,255,255,.08);border-radius:6px;padding:3px 8px;color:#bbb">${ASSIST_SVG} ${a.name}${a.minute?"'"+a.minute:''}</span>`).join('')}
+      ${groupEvtsForChips(sc.goals).map(g=>`<span style="font-size:11px;background:rgba(255,255,255,.08);border-radius:6px;padding:3px 8px;color:#ddd">${GOAL_SVG} ${lastNameOf(g.name)}${g.minutes.map(m=>"'"+m).join(' ')?' '+g.minutes.map(m=>"'"+m).join(' '):''}</span>`).join('')}
+      ${groupEvtsForChips(sc.assists||[]).map(a=>`<span style="font-size:11px;background:rgba(255,255,255,.08);border-radius:6px;padding:3px 8px;color:#bbb">${ASSIST_SVG} ${lastNameOf(a.name)}${a.minutes.map(m=>"'"+m).join(' ')?' '+a.minutes.map(m=>"'"+m).join(' '):''}</span>`).join('')}
     </div>`:''}
   </div>`;
   // Rating status bar
@@ -2695,7 +2808,7 @@ function renderMdPlayers(club,data,md){
   $('md-players').innerHTML=html;
 }
 function mpH(p,club,md,open,eligible=true){
-  const mr=mdRating(clubId,md.id,p.id),or=overallRating(clubId,p.id),exp=expPlayer===p.id,canRate=open&&eligible;
+  const mr=mdRating(clubId,md.id,p.id),or=overallRating(clubId,p.id),myR=myRating(clubId,md.id,p.id),exp=expPlayer===p.id,canRate=open&&eligible;
   const pcmts=(comments[clubId+'_'+md.id+'_'+p.id]||[]);
   let cmtsH='';
   if(exp&&eligible){
@@ -2706,13 +2819,13 @@ function mpH(p,club,md,open,eligible=true){
     </div>`;
   }
   const dimStyle=eligible?'':'opacity:0.42;filter:grayscale(0.5)';
-  return`<div class="mp ${exp&&eligible?'exp':''} ${mr>0&&eligible?'rated':''}" id="mp_${p.id}" style="${dimStyle}">
+  return`<div class="mp ${exp&&eligible?'exp':''} ${myR>0&&eligible?'rated':''}" id="mp_${p.id}" style="${dimStyle}">
     <div class="mp-main">
       ${avH(p.name,p.img,46,club.primary,club.accent)}
       <div class="mp-info">
         <div class="mp-name">${p.name}</div>
         <div class="mp-meta">#${p.num} - ${p.pos}</div>
-        ${canRate?`<div class="rate-row">${starsH(mr,21,true,clubId,md.id,p.id)}<span class="rate-lbl" style="color:${mr>0?club.accent:'#ccc'}">${mr>0?mr.toFixed(1)+' this match':'Tap to rate'}</span></div>`
+        ${canRate?`<div class="rate-row">${starsH(myR,21,true,clubId,md.id,p.id)}<span class="rate-lbl" style="color:${myR>0?club.accent:'#ccc'}">${myR>0?'You rated '+myR+'/5':'Tap to rate'}</span></div>`
           :eligible?`<div class="rate-row">${starsH(mr,21,false)}<span class="rate-lbl">${mr>0?mr.toFixed(1):'Locked'}</span></div>`
           :`<div class="rate-row"><span class="rate-lbl" style="color:#ccc;font-size:12px">Not in lineup</span></div>`}
         ${or>0&&eligible?`<div class="overall-row">${starsH(or,11)}<span class="overall-lbl">${or.toFixed(1)} overall</span></div>`:''}
@@ -2794,15 +2907,16 @@ function openPlayerInfo(pid,cid){
       ${p.age?`<div style="font-size:12px;color:rgba(255,255,255,.6)">Age ${p.age}${p.height?' - '+p.height+' cm':''}</div>`:''}
     </div>`;
   const fields=getStatFields(clubId,p.pos),gridCls=isNB?'netball-grid':'football-grid';
-  $('pi-stats-block').innerHTML=`<div class="pi-stat-grid ${gridCls}" style="grid-template-columns:repeat(${isNB?4:3},1fr)">${fields.map(f=>`<div class="pi-stat"><div class="pi-stat-num">${computeStatValue(p,f)}</div><div class="pi-stat-lbl">${f.lbl}</div></div>`).join('')}</div>`;
+  $('pi-stats-block').innerHTML=`<div class="pi-stat-grid ${gridCls}" style="grid-template-columns:repeat(${isNB?4:3},1fr)">${fields.map(f=>`<div class="pi-stat"><div class="pi-stat-num">${computeStatValue(p,f,clubId)}</div><div class="pi-stat-lbl">${f.lbl}</div></div>`).join('')}</div>`;
   let fH='';
   if(r>0)fH+=`<div class="pi-field"><div class="pi-field-lbl">Fan Rating</div><div>${starsH(r,16)} <span style="color:#e8a020;font-weight:700">${r.toFixed(1)} / 5.0</span></div></div>`;
   // All stats summary
   var allStats='';
+  var gpCount=getPlayerAppearances(clubId,p.id);
   if(!isNB){
     if(p.goals)allStats+='<span style="background:#e8f5e9;color:#2ecc71;border:1px solid #a5d6a7;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.goals+' Goals</span>';
     if(p.assists)allStats+='<span style="background:#e3f2fd;color:#1976d2;border:1px solid #90caf9;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.assists+' '+ASSIST_SVG+' Assists</span>';
-    if(p.gp)allStats+='<span style="background:#f3e5f5;color:#7b1fa2;border:1px solid #ce93d8;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.gp+' Games</span>';
+    if(gpCount)allStats+='<span style="background:#f3e5f5;color:#7b1fa2;border:1px solid #ce93d8;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+gpCount+' Games</span>';
     if(p.cleanSheets)allStats+='<span style="background:#e0f7fa;color:#0097a7;border:1px solid #80deea;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.cleanSheets+' CS</span>';
     if(p.yellowCards)allStats+='<span style="background:#fff8e1;color:#f57f17;border:1px solid #ffe082;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px"><span style="display:inline-block;width:9px;height:13px;background:#f1c40f;border-radius:2px;vertical-align:middle;margin-right:3px"></span>'+p.yellowCards+' YC</span>';
     if(p.redCards)allStats+='<span style="background:#fce4ec;color:#c62828;border:1px solid #ef9a9a;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px"><span style="display:inline-block;width:9px;height:13px;background:#e74c3c;border-radius:2px;vertical-align:middle;margin-right:3px"></span>'+p.redCards+' RC</span>';
@@ -2811,7 +2925,7 @@ function openPlayerInfo(pid,cid){
     if(p.attempts)allStats+='<span style="background:#e3f2fd;color:#1976d2;border:1px solid #90caf9;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.attempts+' Attempts</span>';
     if(p.assists)allStats+='<span style="background:#f3e5f5;color:#7b1fa2;border:1px solid #ce93d8;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.assists+' '+ASSIST_SVG+' Assists</span>';
     if(p.intercepts)allStats+='<span style="background:#fff3e0;color:#e65100;border:1px solid #ffcc80;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.intercepts+' Intercepts</span>';
-    if(p.gp)allStats+='<span style="background:#fce4ec;color:#880e4f;border:1px solid #f48fb1;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.gp+' Games</span>';
+    if(gpCount)allStats+='<span style="background:#fce4ec;color:#880e4f;border:1px solid #f48fb1;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+gpCount+' Games</span>';
   }
   if(allStats)fH+=`<div class="pi-field"><div class="pi-field-lbl">Stats</div><div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px">${allStats}</div></div>`;
   // Personal details
@@ -3137,14 +3251,47 @@ async function doSaveMdEdit(){
   if(mdId===editMdId){if(md.status==='live')startTimer(md);else stopTimer();renderMd();}else{renderMatchdays();updateLiveIndicator();}
 }
 
-function openAddNews(){$('nh-t').value='';$('nh-d').value=new Date().toISOString().split('T')[0];openModal('m-news');}
+let editingHeadlineId=null;
+function openAddNews(){
+  editingHeadlineId=null;
+  $('news-modal-title').textContent='Add Headline';$('news-save-btn').textContent='Add';
+  $('nh-t').value='';$('nh-d').value=new Date().toISOString().split('T')[0];$('nh-body').value='';
+  openModal('m-news');
+}
+function openEditNews(hid){
+  const h=getData(clubId)?.headlines?.find(x=>String(x.id)===String(hid));if(!h)return;
+  editingHeadlineId=hid;
+  $('news-modal-title').textContent='Edit Headline';$('news-save-btn').textContent='Save Changes';
+  $('nh-t').value=h.title||'';$('nh-d').value=h.date||'';$('nh-body').value=h.body||'';
+  openModal('m-news');
+}
 async function doAddHeadline(){
-  const t=$('nh-t').value.trim(),d=$('nh-d').value;if(!t)return;
-  var hId=Date.now();
-  if(dbConnected){ var dbH=await dbSaveHeadline(clubId,t,d); if(dbH){hId=dbH.id;} }
-  if(!clubData[clubId].headlines)clubData[clubId].headlines=[];
-  clubData[clubId].headlines.push({id:hId,title:t,date:d});
+  const t=$('nh-t').value.trim(),d=$('nh-d').value,body=$('nh-body').value;if(!t)return;
+  if(editingHeadlineId){
+    const h=clubData[clubId].headlines.find(x=>String(x.id)===String(editingHeadlineId));
+    if(h){ h.title=t;h.date=d;h.body=body; }
+    if(dbConnected){ await dbUpdateHeadline(editingHeadlineId,t,d,body); }
+    writeLog('headline_updated','headline',{details:{title:t}});
+  } else {
+    var hId=Date.now();
+    if(dbConnected){ var dbH=await dbSaveHeadline(clubId,t,d,body); if(dbH){hId=dbH.id;} }
+    if(!clubData[clubId].headlines)clubData[clubId].headlines=[];
+    clubData[clubId].headlines.push({id:hId,title:t,date:d,body});
+    writeLog('headline_added','headline',{details:{title:t}});
+  }
   sv('uc_data_v7',clubData);cm('m-news');renderNews();
+  editingHeadlineId=null;
+}
+// Fan-facing: shows the full story. Headlines/previews everywhere else
+// only ever show the title (the "highlight") — this is where the full
+// body text actually gets read.
+function openNewsDetail(cid,hid){
+  const club=getClub(cid);
+  const h=getData(cid)?.headlines?.find(x=>String(x.id)===String(hid));if(!h)return;
+  $('nd-title').textContent=h.title;
+  $('nd-meta').innerHTML=`<span style="color:${club?club.accent:'#4dc8c8'};font-weight:700">${club?club.short:''}</span>${h.date?' &middot; '+h.date:''}`;
+  $('nd-body').textContent=h.body&&h.body.trim()?h.body:'No further details for this story yet.';
+  openModal('m-news-detail');
 }
 
 function openEditStats(pid){
@@ -3175,20 +3322,22 @@ function renderLiveScorerStrip(club, sc, isLive){
   var goalIcon=GOAL_SVG;
   var h='<div style="display:flex;flex-wrap:wrap;gap:7px;align-items:center">';
   h+='<span style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:'+(club?club.primary:'#1d2d5a')+';flex-shrink:0">'+goalIcon+' Scorers</span>';
-  goals.forEach(function(g){
+  groupEvtsForChips(goals).forEach(function(g){
+    var minsH=g.minutes.map(function(m){return '<span style="color:'+(club?club.accent:'#4dc8c8')+';font-size:11px">'+m+"'</span>";}).join(' ');
     h+='<span style="display:inline-flex;align-items:center;gap:5px;background:'+(club?club.primary:'#1d2d5a')+';color:#fff;border-radius:20px;padding:5px 13px;font-size:13px;font-weight:700;box-shadow:0 1px 4px rgba(0,0,0,.15)">'+
       '<span>'+goalIcon+'</span>'+
-      '<span>'+g.name+'</span>'+
-      (g.minute?'<span style="color:'+(club?club.accent:'#4dc8c8')+';font-size:11px">'+g.minute+"'</span>":'')+
+      '<span>'+lastNameOf(g.name)+'</span>'+
+      minsH+
     '</span>';
   });
   if(assists.length){
     h+='<span style="font-size:10px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#888;flex-shrink:0;margin-left:4px">'+ASSIST_SVG+' Assists</span>';
-    assists.forEach(function(a){
+    groupEvtsForChips(assists).forEach(function(a){
+      var minsH=a.minutes.map(function(m){return '<span style="color:#f39c12;font-size:11px">'+m+"'</span>";}).join(' ');
       h+='<span style="display:inline-flex;align-items:center;gap:5px;background:#f0f0f5;color:#444;border-radius:20px;padding:5px 13px;font-size:12px;font-weight:600;border:1.5px solid #e0e0e8">'+
         '<span>'+ASSIST_SVG+'</span>'+
-        '<span>'+a.name+'</span>'+
-        (a.minute?'<span style="color:#f39c12;font-size:11px">'+a.minute+"'</span>":'')+
+        '<span>'+lastNameOf(a.name)+'</span>'+
+        minsH+
       '</span>';
     });
   }
@@ -3387,11 +3536,11 @@ async function openMatchDetail(cid,mid){
   if(sc.goals&&sc.goals.length){
     h+='<div style="margin-bottom:12px">';
     h+='<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#888;margin-bottom:6px">⚽ Goalscorers</div>';
-    sc.goals.forEach(function(g){
+    groupEvtsForChips(sc.goals).forEach(function(g){
       h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f5f5f5">';
       h+='<span style="font-size:18px">⚽</span>';
-      h+='<span style="font-weight:700;color:#1a1a2e;flex:1">'+g.name+'</span>';
-      if(g.minute) h+='<span style="font-size:12px;color:#aaa;font-weight:600">'+g.minute+'\'</span>';
+      h+='<span style="font-weight:700;color:#1a1a2e;flex:1">'+lastNameOf(g.name)+'</span>';
+      if(g.minutes.length) h+='<span style="font-size:12px;color:#aaa;font-weight:600">'+g.minutes.map(function(m){return m+"\'";}).join(' ')+'</span>';
       h+='</div>';
     });
     h+='</div>';
@@ -3399,11 +3548,11 @@ async function openMatchDetail(cid,mid){
   if(sc.assists&&sc.assists.length){
     h+='<div style="margin-bottom:12px">';
     h+='<div style="font-size:11px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:#888;margin-bottom:6px">🎯 Assists</div>';
-    sc.assists.forEach(function(a){
+    groupEvtsForChips(sc.assists).forEach(function(a){
       h+='<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f5f5f5">';
       h+='<span style="font-size:18px">🎯</span>';
-      h+='<span style="font-weight:700;color:#1a1a2e;flex:1">'+a.name+'</span>';
-      if(a.minute) h+='<span style="font-size:12px;color:#aaa;font-weight:600">'+a.minute+'\'</span>';
+      h+='<span style="font-weight:700;color:#1a1a2e;flex:1">'+lastNameOf(a.name)+'</span>';
+      if(a.minutes.length) h+='<span style="font-size:12px;color:#aaa;font-weight:600">'+a.minutes.map(function(m){return m+"\'";}).join(' ')+'</span>';
       h+='</div>';
     });
     h+='</div>';
@@ -3514,11 +3663,13 @@ function renderHubLive(){
     html+='</div>';
     if(sc.goals&&sc.goals.length){
       html+='<div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">';
-      sc.goals.forEach(function(g){
-        html+='<span style="background:'+club.primary+';color:#fff;border-radius:50px;padding:3px 10px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:4px"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>'+g.name+(g.minute?"'"+g.minute:'')+'</span>';
+      groupEvtsForChips(sc.goals).forEach(function(g){
+        var mins=g.minutes.map(function(m){return "'"+m;}).join(' ');
+        html+='<span style="background:'+club.primary+';color:#fff;border-radius:50px;padding:3px 10px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:4px"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>'+lastNameOf(g.name)+(mins?' '+mins:'')+'</span>';
       });
-      (sc.assists||[]).forEach(function(a){
-        html+='<span style="background:#f0f2f7;color:#555;border-radius:50px;padding:3px 10px;font-size:11px;font-weight:600;border:1px solid #e0e4ef">A '+a.name+(a.minute?"'"+a.minute:'')+'</span>';
+      groupEvtsForChips(sc.assists||[]).forEach(function(a){
+        var mins=a.minutes.map(function(m){return "'"+m;}).join(' ');
+        html+='<span style="background:#f0f2f7;color:#555;border-radius:50px;padding:3px 10px;font-size:11px;font-weight:600;border:1px solid #e0e4ef">A '+lastNameOf(a.name)+(mins?' '+mins:'')+'</span>';
       });
       html+='</div>';
     }
@@ -3551,7 +3702,7 @@ function renderNewsHub(){
     html+='<div style="font-size:10px;color:'+club.accent+';font-weight:700;letter-spacing:.5px;text-transform:uppercase">'+club.sport+'</div></div>';
     html+='</div>';
     headlines.forEach(function(h){
-      html+='<div class="news-card" data-cid="'+cid+'" onclick="viewClubNews(this.dataset.cid,\'newshub\')">';
+      html+='<div class="news-card" data-cid="'+cid+'" data-hid="'+h.id+'" onclick="openNewsDetail(this.dataset.cid,this.dataset.hid)">';
       html+='<div class="news-card-title">'+h.title+'</div>';
       html+='<div class="news-card-meta"><span style="color:'+club.accent+';font-weight:700">'+club.short+'</span> &bull; '+( h.date||'')+'</div>';
       html+='</div>';

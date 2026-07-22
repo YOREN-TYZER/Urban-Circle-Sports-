@@ -530,7 +530,20 @@
   </div>
   <label class="flbl">Name</label><input id="ns-name" class="finp" placeholder="Full name"/>
   <label class="flbl">Role</label><input id="ns-role" class="finp" placeholder="e.g. Head Coach, Physiotherapist"/>
+  <div class="edit-grid-2">
+    <div><label class="flbl">Qualification (optional)</label><input id="ns-qual" class="finp" placeholder="e.g. CAF A License"/></div>
+    <div><label class="flbl">Years of Experience (optional)</label><input id="ns-years" type="number" min="0" class="finp" placeholder="e.g. 8"/></div>
+  </div>
+  <label class="flbl">Background / Bio (optional)</label>
+  <textarea id="ns-bio" class="finp" rows="4" style="resize:vertical" placeholder="Coaching history, achievements, background..."></textarea>
   <div class="mfoot"><button class="mbtn t" onclick="doSaveStaff()" id="ns-save-btn">Add Staff</button><button class="mbtn c" onclick="cm('m-add-staff')">Cancel</button></div>
+</div></div>
+
+<!-- Staff Profile (fan-facing, read-only) -->
+<div id="m-staff-profile" class="modal"><div class="mbox wide" style="max-width:480px">
+  <div class="mhead"><h3 id="sp-modal-title">Staff Profile</h3><button class="mclose" onclick="cm('m-staff-profile')">&times;</button></div>
+  <div id="sp-header-block" style="display:flex;align-items:center;gap:14px;border-radius:12px;padding:16px;margin-bottom:14px"></div>
+  <div id="sp-details-block"></div>
 </div></div>
 
 <!-- Edit Stats Modal -->
@@ -627,10 +640,19 @@
 
 <!-- Add News Modal -->
 <div id="m-news" class="modal"><div class="mbox">
-  <div class="mhead"><h3>Add Headline</h3><button class="mclose" onclick="cm('m-news')">&times;</button></div>
+  <div class="mhead"><h3 id="news-modal-title">Add Headline</h3><button class="mclose" onclick="cm('m-news')">&times;</button></div>
   <label class="flbl">Headline</label><input id="nh-t" class="finp" placeholder="Enter headline"/>
   <label class="flbl">Date</label><input id="nh-d" type="date" class="finp"/>
-  <div class="mfoot"><button class="mbtn t" onclick="doAddHeadline()">Add</button><button class="mbtn c" onclick="cm('m-news')">Cancel</button></div>
+  <label class="flbl">Full Story (optional)</label>
+  <textarea id="nh-body" class="finp" rows="8" style="resize:vertical;font-family:inherit" placeholder="Write the full story here. Press Enter for new paragraphs..."></textarea>
+  <div class="mfoot"><button class="mbtn t" onclick="doAddHeadline()" id="news-save-btn">Add</button><button class="mbtn c" onclick="cm('m-news')">Cancel</button></div>
+</div></div>
+
+<!-- News Detail (fan-facing, read-only) -->
+<div id="m-news-detail" class="modal"><div class="mbox wide">
+  <div class="mhead"><h3 id="nd-title">News</h3><button class="mclose" onclick="cm('m-news-detail')">&times;</button></div>
+  <div id="nd-meta" style="font-size:12px;color:#999;margin-bottom:12px"></div>
+  <div id="nd-body" style="font-size:14px;line-height:1.7;color:#333;white-space:pre-wrap"></div>
 </div></div>
 
 <!-- UC Logo Modal -->

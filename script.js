@@ -214,7 +214,8 @@ async function loadClubDataFromDB(cid) {
       attempts: p.attempts||0,
       intercepts: p.intercepts||0,
       goalsConceded: p.goals_conceded||0,
-      saves: p.saves||0
+      saves: p.saves||0,
+      gpOverride: (p.gp_override!=null) ? p.gp_override : null
     }));
     const normMds = (matchdays||[]).map(normalizeMatchdayRow);
     clubData[cid] = {players: normPlayers, matchdays: normMds, headlines: headlines||[]};
@@ -340,6 +341,7 @@ async function dbSavePlayer(pid, update) {
     const dbUpdate = {
       name: update.name, num: update.num, pos: update.pos,
       goals: update.goals||0, assists: update.assists||0, gp: update.gp||0,
+      gp_override: (update.gpOverride!=null) ? update.gpOverride : null,
       img: update.img, age: update.age||0, nationality: update.nationality||'',
       hometown: update.hometown||'', height: update.height||0,
       foot: update.foot||'', shirtname: update.shirtname||'', bio: update.bio||'',
@@ -1216,12 +1218,42 @@ function getStatFields(cid, pos){
     {key:'redCards',lbl:'RC'}
   ];
 }
+// Effective "Games Played": an admin's manual override if one has been
+// explicitly set, otherwise the auto-calculated appearance count (from
+// actual lineup/substitute records). This is the one source of truth
+// used everywhere Games gets displayed or edited.
+function effectiveGP(p, cid){
+  if(p.gpOverride!=null) return p.gpOverride;
+  return cid ? getPlayerAppearances(cid, p.id) : (p.gp||0);
+}
+// Builds the "Games" field for an edit form: shows the auto-calculated
+// count by default (disabled, since it updates itself from lineups), with
+// a checkbox admins can tick to manually override it. This is the one
+// stat that isn't just a plain number input, since it can be either
+// auto-calculated or manually set.
+function gpFieldH(prefix, p, cid){
+  const overridden=p.gpOverride!=null;
+  const val=effectiveGP(p,cid);
+  return `<div>
+    <label class="flbl">Games</label>
+    <input id="${prefix}-gp" type="number" class="finp" min="0" value="${val}" ${overridden?'':'disabled'} style="${overridden?'':'background:#f5f5f5;color:#888'}"/>
+    <label style="display:flex;align-items:center;gap:5px;margin-top:4px;font-size:11px;color:#888;cursor:pointer">
+      <input type="checkbox" id="${prefix}-gp-override" ${overridden?'checked':''} onchange="toggleGPOverride('${prefix}',this.checked)"/> Override auto-count
+    </label>
+  </div>`;
+}
+function toggleGPOverride(prefix,checked){
+  const el=$(prefix+'-gp');if(!el)return;
+  el.disabled=!checked;
+  el.style.background=checked?'':'#f5f5f5';
+  el.style.color=checked?'':'#888';
+}
 function computeStatValue(p, f, cid){
   if(f.key === 'gp'){
-    return cid ? getPlayerAppearances(cid, p.id) : (p.gp||0);
+    return effectiveGP(p, cid);
   }
   if(f.key === 'cleanSheetPct'){
-    const gp = cid ? getPlayerAppearances(cid, p.id) : (p.gp||0);
+    const gp = effectiveGP(p, cid);
     const cs = p.cleanSheets || 0;
     return gp > 0 ? Math.round((cs/gp)*100) + '%' : '0%';
   }
@@ -2948,7 +2980,7 @@ function switchToEditPlayer(){
   $('pi-nationality').value=p.nationality||'';$('pi-hometown').value=p.hometown||'';$('pi-height').value=p.height||'';$('pi-bio').value=p.bio||'';
   $('pi-sport-fields').innerHTML=!isNB?`<div class="edit-grid-2"><div><label class="flbl">Preferred Foot</label><select id="pi-foot" class="fsel"><option value="">N/A</option><option value="Right" ${p.foot==='Right'?'selected':''}>Right</option><option value="Left" ${p.foot==='Left'?'selected':''}>Left</option><option value="Both" ${p.foot==='Both'?'selected':''}>Both</option></select></div><div><label class="flbl">Shirt Name</label><input id="pi-shirtname" class="finp" value="${p.shirtname||''}"/></div></div>`:`<div><label class="flbl">Shirt Name</label><input id="pi-shirtname" class="finp" value="${p.shirtname||''}"/></div>`;
   const fields=getStatFields(clubId,p.pos);
-  $('pi-stats-edit').innerHTML=`<div style="display:grid;grid-template-columns:repeat(${Math.min(fields.length,3)},1fr);gap:9px;margin-top:10px">${fields.map(f=>f.computed?'':`<div><label class="flbl">${f.lbl}</label><input id="pi-stat-${f.key}" type="number" class="finp" min="0" value="${p[f.key]||0}"/></div>`).join('')}</div>`;
+  $('pi-stats-edit').innerHTML=`<div style="display:grid;grid-template-columns:repeat(${Math.min(fields.length,3)},1fr);gap:9px;margin-top:10px">${fields.map(f=>f.key==='gp'?gpFieldH('pi-stat',p,clubId):(f.computed?'':`<div><label class="flbl">${f.lbl}</label><input id="pi-stat-${f.key}" type="number" class="finp" min="0" value="${p[f.key]||0}"/></div>`)).join('')}</div>`;
   $('pi-edit-avatar').innerHTML=avH(p.name,p.img,72,club.primary,club.accent);
   $('pi-view').style.display='none';$('pi-edit').style.display='';
 }
@@ -2971,7 +3003,9 @@ async function savePlayerEdit(){
   p.age=parseInt($('pi-age').value)||0;p.nationality=$('pi-nationality').value.trim();p.hometown=$('pi-hometown').value.trim();p.height=parseInt($('pi-height').value)||0;p.bio=$('pi-bio').value.trim();
   p.shirtname=$('pi-shirtname')?.value.trim()||'';
   if(!isNB)p.foot=$('pi-foot')?.value||'';
-  getStatFields(clubId,p.pos).forEach(f=>{const el=$('pi-stat-'+f.key);if(el)p[f.key]=parseInt(el.value)||0;});
+  getStatFields(clubId,p.pos).forEach(f=>{if(f.key==='gp')return;const el=$('pi-stat-'+f.key);if(el)p[f.key]=parseInt(el.value)||0;});
+  const piGpOverrideEl=$('pi-stat-gp-override');
+  if(piGpOverrideEl){ p.gpOverride = piGpOverrideEl.checked ? (parseInt($('pi-stat-gp').value)||0) : null; }
   if(piNewPhoto!==undefined){
     if(piNewPhoto===null){
       p.img=null;
@@ -3296,13 +3330,15 @@ function openNewsDetail(cid,hid){
 
 function openEditStats(pid){
   editingStatsPid=pid;const p=getData(clubId).players.find(pl=>pl.id===pid);
-  const fields=getStatFields(clubId,p.pos).filter(f=>!f.computed);
-  $('stats-fields').innerHTML=`<div style="display:grid;grid-template-columns:repeat(${Math.min(fields.length,3)},1fr);gap:9px">${fields.map(f=>`<div><label class="flbl">${f.lbl}</label><input id="es-${f.key}" type="number" class="finp" min="0" value="${p[f.key]||0}"/></div>`).join('')}</div>`;
+  const fields=getStatFields(clubId,p.pos).filter(f=>!f.computed||f.key==='gp');
+  $('stats-fields').innerHTML=`<div style="display:grid;grid-template-columns:repeat(${Math.min(fields.length,3)},1fr);gap:9px">${fields.map(f=>f.key==='gp'?gpFieldH('es',p,clubId):`<div><label class="flbl">${f.lbl}</label><input id="es-${f.key}" type="number" class="finp" min="0" value="${p[f.key]||0}"/></div>`).join('')}</div>`;
   openModal('m-stats');
 }
 async function doSaveStats(){
   const p=clubData[clubId].players.find(pl=>pl.id===editingStatsPid);if(!p)return;
   getStatFields(clubId,p.pos).forEach(f=>{if(f.computed)return;const el=$('es-'+f.key);if(el)p[f.key]=parseInt(el.value)||0;});
+  const esGpOverrideEl=$('es-gp-override');
+  if(esGpOverrideEl){ p.gpOverride = esGpOverrideEl.checked ? (parseInt($('es-gp').value)||0) : null; }
   if(dbConnected){
     try { await dbSavePlayer(editingStatsPid,p); }
     catch(e){ return; }

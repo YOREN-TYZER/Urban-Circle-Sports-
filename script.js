@@ -534,7 +534,7 @@ async function dbWriteLog(action, category, details) {
 
 async function dbSaveHeadline(cid, title, date, body) {
   try {
-    const rows = await sb('POST', 'headlines', {data: {club_id: cid, title, date, body: body||''}});
+    const rows = await sb('POST', 'headlines', {data: {club_id: cid, title, date, body: body||'', archived: false}});
     return Array.isArray(rows) ? rows[0] : rows;
   } catch(e) { console.warn('dbSaveHeadline failed:', e.message); return null; }
 }
@@ -543,6 +543,10 @@ async function dbUpdateHeadline(id, title, date, body) {
     await sb('PATCH', 'headlines', {eq: {id}, data: {title, date, body: body||''}});
     return true;
   } catch(e) { console.warn('dbUpdateHeadline failed:', e.message); return false; }
+}
+async function dbSetHeadlineArchived(id, archived){
+  try { await sb('PATCH', 'headlines', {eq: {id}, data: {archived}}); return true; }
+  catch(e){ console.warn('dbSetHeadlineArchived failed:', e.message); return false; }
 }
 
 async function dbDeleteHeadline(id) {
@@ -577,7 +581,7 @@ async function dbSaveGalleryItem(item) {
   try {
     const rows = await sb('POST', 'gallery', {data: {
       title: item.title, date: item.date,
-      club_id: item.clubId||null, img: item.img
+      club_id: item.clubId||null, img: item.img, archived: false
     }});
     return Array.isArray(rows) ? rows[0] : rows;
   } catch(e) { console.warn('dbSaveGalleryItem failed, saving locally:', e.message); return null; }
@@ -585,6 +589,10 @@ async function dbSaveGalleryItem(item) {
 
 async function dbDeleteGalleryItem(id) {
   try { await sb('DELETE', 'gallery', {eq: {id}}); } catch(e) { console.warn(e.message); }
+}
+async function dbSetGalleryArchived(id, archived){
+  try { await sb('PATCH', 'gallery', {eq: {id}, data: {archived}}); return true; }
+  catch(e){ console.warn('dbSetGalleryArchived failed:', e.message); return false; }
 }
 
 // Real admin login: verifies the password via Supabase Auth (hashed,
@@ -2010,13 +2018,19 @@ function renderHome(){
 
   var strip = $('home-gallery-strip');
   var preview = $('home-gallery-preview');
-  if(strip && preview && gallery.length > 0){
+  var LATEST_CUTOFF_MS = 2*24*60*60*1000; // 2 days
+  var recentPhotos = gallery.filter(function(item){
+    if(item.archived) return false;
+    var ts = item.created ? new Date(item.created).getTime() : (item.created_at ? new Date(item.created_at).getTime() : 0);
+    return ts && (Date.now()-ts) < LATEST_CUTOFF_MS;
+  });
+  if(strip && preview && recentPhotos.length > 0){
     strip.style.display = '';
-    var recent = gallery.slice(0,4);
+    var recent = recentPhotos.slice(0,4);
     var previewHTML = '';
     recent.forEach(function(item,i){
       var club = item.clubId ? getClub(item.clubId) : null;
-      var overlay = (i===3&&gallery.length>4) ? '<div style="position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-family:Oswald,sans-serif;font-size:20px;font-weight:700">+' + (gallery.length-4) + '</div>' : '';
+      var overlay = (i===3&&recentPhotos.length>4) ? '<div style="position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;color:#fff;font-family:Oswald,sans-serif;font-size:20px;font-weight:700">+' + (recentPhotos.length-4) + '</div>' : '';
       var badge = club ? '<div style="position:absolute;bottom:5px;left:5px;padding:1px 6px;border-radius:6px;font-size:9px;font-weight:800;background:' + club.primary + ';color:' + club.accent + '">' + club.short + '</div>' : '';
       previewHTML += '<div onclick="openGalleryView()" style="position:relative;aspect-ratio:1;min-width:0;overflow:hidden;cursor:pointer;background:#f0f0f5"><img src="' + item.img + '" alt="' + item.title + '" style="width:100%;height:100%;object-fit:cover"/>' + overlay + badge + '</div>';
     });
@@ -2031,6 +2045,11 @@ function renderHome(){
     var allNews = [];
     clubs.forEach(function(c){
       (getData(c.id)?.headlines||[]).forEach(function(h){ allNews.push(Object.assign({},h,{clubId:c.id})); });
+    });
+    allNews = allNews.filter(function(h){
+      if(h.archived) return false;
+      var ts = h.created_at ? new Date(h.created_at).getTime() : 0;
+      return ts && (Date.now()-ts) < LATEST_CUTOFF_MS;
     });
     allNews.sort(function(a,b){
       var av=a.created_at?new Date(a.created_at).getTime():0;
@@ -2065,7 +2084,8 @@ function clubCardH(club){
   const data=getData(club.id),players=data?.players||[],headlines=data?.headlines||[];
   const liveMds=(data?.matchdays||[]).filter(m=>m.status==='live');
   const sorted=[...players].sort((a,b)=>overallRating(club.id,b.id)-overallRating(club.id,a.id));
-  const newsH=headlines.slice(0,2).map(h=>`<div class="news-item" style="border-color:${club.accent};cursor:pointer" onclick="openNewsDetail('${club.id}',${h.id})">${h.title}</div>`).join('');
+  const newsH=headlines.filter(h=>!h.archived).slice(0,2).map(h=>`<div class="news-item" style="border-color:${club.accent};cursor:pointer" onclick="openNewsDetail('${club.id}',${h.id})">${h.title}</div>`).join('');
+  const visibleNewsCount=headlines.filter(h=>!h.archived).length;
   let lbH='',anyR=false;
   sorted.slice(0,5).forEach((p,i)=>{const r=overallRating(club.id,p.id);if(!r)return;anyR=true;
     lbH+=`<div class="lb-row" style="${i===0?`background:${club.primary}12`:''};cursor:pointer" onclick="openPlayerInfo('${p.id}','${club.id}')">`+
@@ -2084,7 +2104,7 @@ function clubCardH(club){
       const halfTag=(info.running&&!info.paused)?` &middot; ${info.halfLabel}`:'';
       return`<div class="cc-live-item"><span class="live-badge${isMatchPaused(m)?' paused-badge':''}" style="cursor:pointer" onclick="goToLiveMatch('${club.id}','${m.id}')">${isMatchPaused(m)?'<span class="pause-icon">&#10074;&#10074;</span>'+pausedBreakLabel(m):'<span class="live-dot"></span>LIVE'} vs ${m.opponent}${halfTag} &middot; ${m.homeGoals||0}-${m.awayGoals||0}</span>${liveGoalScorersH(club,m,'cc-live-scorers')}</div>`;
     }).join('')}</div>`:''}
-    ${headlines.length?`<div class="cc-news"><div class="sec-lbl" style="color:${club.accent}">Latest News</div>${newsH}</div>`:''}
+    ${visibleNewsCount?`<div class="cc-news"><div class="sec-lbl" style="color:${club.accent}">Latest News</div>${newsH}</div>`:''}
     <div class="cc-lb"><div class="sec-lbl" style="color:${club.accent}">Leaderboard</div>${lbH}</div>
     <div class="cc-foot">
       ${isAdmin?`<button onclick="openUcLogoModal()" style="width:100%;padding:7px;border-radius:8px;border:1.5px dashed #ddd;background:transparent;font-size:12px;color:#999;cursor:pointer;margin-bottom:6px">&#127941; Edit UC Main Logo</button>`:''}
@@ -2376,13 +2396,24 @@ function delMd(mid){
   });
 }
 
+let showArchivedNews=false;
 function renderNews(){
-  const data=getData(clubId),headlines=data?.headlines||[];
-  if(!headlines.length){$('news-list').innerHTML=`<div style="color:#ccc;font-style:italic;padding:20px 0">No news yet.</div>`;return;}
-  $('news-list').innerHTML=headlines.map(h=>`<div class="news-row" style="cursor:pointer" onclick="openNewsDetail('${clubId}',${h.id})">
+  const data=getData(clubId),all=data?.headlines||[];
+  const headlines = showArchivedNews ? all.filter(h=>h.archived) : all.filter(h=>!h.archived);
+  const archivedCount = all.filter(h=>h.archived).length;
+  const toggleH = isAdmin&&archivedCount ? `<div style="text-align:center;margin-bottom:10px"><button onclick="showArchivedNews=!showArchivedNews;renderNews()" style="background:none;border:none;color:#888;font-size:12px;text-decoration:underline;cursor:pointer">${showArchivedNews?'Show current news':'Show archived ('+archivedCount+')'}</button></div>` : '';
+  if(!headlines.length){$('news-list').innerHTML=toggleH+`<div style="color:#ccc;font-style:italic;padding:20px 0">${showArchivedNews?'No archived news.':'No news yet.'}</div>`;return;}
+  $('news-list').innerHTML=toggleH+headlines.map(h=>`<div class="news-row" style="cursor:pointer" onclick="openNewsDetail('${clubId}',${h.id})">
     <div><div class="nr-title">${h.title}</div><div class="nr-date">${h.date}</div></div>
-    ${isAdmin?`<button class="nr-del" onclick="event.stopPropagation();openEditNews(${h.id})" style="margin-right:4px">&#9998;</button><button class="nr-del" onclick="event.stopPropagation();delNews(${h.id})">x</button>`:''}
+    ${isAdmin?`<button class="nr-del" onclick="event.stopPropagation();openEditNews(${h.id})" style="margin-right:4px">&#9998;</button><button class="nr-del" onclick="event.stopPropagation();toggleNewsArchive(${h.id},${!h.archived})" style="margin-right:4px" title="${h.archived?'Unarchive':'Archive'}">${h.archived?'&#8617;':'&#128451;'}</button><button class="nr-del" onclick="event.stopPropagation();delNews(${h.id})">x</button>`:''}
   </div>`).join('');
+}
+async function toggleNewsArchive(hid,archived){
+  const h=clubData[clubId].headlines.find(x=>String(x.id)===String(hid));if(!h)return;
+  h.archived=archived;
+  sv('uc_data_v7',clubData);renderNews();
+  if(dbConnected){ await dbSetHeadlineArchived(hid,archived); }
+  showToast(archived?'Story Archived':'Story Restored',archived?'Moved out of the main news list.':'Back in the main news list.');
 }
 async function delNews(hid){
   if(!requireOwner('Deleting a headline'))return;
@@ -2944,7 +2975,7 @@ function openPlayerInfo(pid,cid){
   if(r>0)fH+=`<div class="pi-field"><div class="pi-field-lbl">Fan Rating</div><div>${starsH(r,16)} <span style="color:#e8a020;font-weight:700">${r.toFixed(1)} / 5.0</span></div></div>`;
   // All stats summary
   var allStats='';
-  var gpCount=getPlayerAppearances(clubId,p.id);
+  var gpCount=effectiveGP(p,clubId);
   if(!isNB){
     if(p.goals)allStats+='<span style="background:#e8f5e9;color:#2ecc71;border:1px solid #a5d6a7;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.goals+' Goals</span>';
     if(p.assists)allStats+='<span style="background:#e3f2fd;color:#1976d2;border:1px solid #90caf9;border-radius:5px;padding:2px 8px;font-size:12px;font-weight:700;margin:2px">'+p.assists+' '+ASSIST_SVG+' Assists</span>';
@@ -3729,7 +3760,7 @@ function renderNewsHub(){
   var html='';
   clubs.forEach(function(club){
     var cid=club.id;
-    var headlines=(getData(cid)||{headlines:[]}).headlines||[];
+    var headlines=((getData(cid)||{headlines:[]}).headlines||[]).filter(function(h){return !h.archived;});
     if(!headlines.length)return;
     html+='<div class="news-club-section">';
     html+='<div class="news-club-header" style="border-color:'+club.accent+'20">';
@@ -3807,6 +3838,11 @@ function renderLeaderboardHub(filter){
 let galleryFilter = 'all';
 let lightboxIdx = -1;
 
+function getFilteredGallery(){
+  const showArchived = galleryFilter==='archived';
+  const base = showArchived ? gallery.filter(g=>g.archived) : gallery.filter(g=>!g.archived);
+  return (galleryFilter === 'all' || showArchived) ? base : base.filter(g => g.clubId === galleryFilter);
+}
 function openGalleryView(){
   showV('gallery');
   renderGalleryTabs();
@@ -3817,31 +3853,31 @@ function renderGalleryTabs(){
   const clubBtns=clubs.map(function(c){
     return '<button class="hub-tab'+(galleryFilter===c.id?' active':'')+'" data-club="'+c.id+'" onclick="setGalleryFilter(\''+c.id+'\')">'+c.short+'</button>';
   }).join('');
-  wrap.innerHTML='<button class="hub-tab'+(galleryFilter==='all'?' active':'')+'" data-club="all" onclick="setGalleryFilter(\'all\')">All Photos</button>'+clubBtns;
+  const archivedBtn = isAdmin ? '<button class="hub-tab'+(galleryFilter==='archived'?' active':'')+'" data-club="archived" onclick="setGalleryFilter(\'archived\')" style="color:'+(galleryFilter==='archived'?'#fff':'rgba(255,255,255,.5)')+'">&#128451; Archived</button>' : '';
+  wrap.innerHTML='<button class="hub-tab'+(galleryFilter==='all'?' active':'')+'" data-club="all" onclick="setGalleryFilter(\'all\')">All Photos</button>'+clubBtns+archivedBtn;
 }
 
 function renderGallery(){
   const grid = $('gallery-grid');
   if(!grid) return;
-  const filtered = galleryFilter === 'all'
-    ? gallery
-    : gallery.filter(g => g.clubId === galleryFilter);
+  const showArchived = galleryFilter==='archived';
+  const filtered = getFilteredGallery();
 
   // Update count
   const countEl = $('gal-count');
-  if(countEl) countEl.textContent = filtered.length + (filtered.length === 1 ? ' photo' : ' photos');
+  if(countEl) countEl.textContent = filtered.length + (filtered.length === 1 ? ' photo' : ' photos') + (showArchived?' (archived)':'');
 
   // Update add button visibility
   const galAdminBtn = $('gal-add-btn-wrap');
-  if(galAdminBtn) galAdminBtn.style.display = isAdmin ? '' : 'none';
+  if(galAdminBtn) galAdminBtn.style.display = (isAdmin && !showArchived) ? '' : 'none';
 
   if(!filtered.length){
-    const filterClub = galleryFilter==='all' ? null : getClub(galleryFilter);
-    const label = filterClub ? filterClub.short+' photos' : 'photos';
+    const filterClub = (galleryFilter==='all'||showArchived) ? null : getClub(galleryFilter);
+    const label = filterClub ? filterClub.short+' photos' : (showArchived?'archived photos':'photos');
     grid.innerHTML = `<div class="gal-empty">
       <div class="gal-empty-icon">📷</div>
       <div class="gal-empty-text">No ${label} yet</div>
-      <div class="gal-empty-sub">${isAdmin ? 'Click + Add Photo to upload the first one' : 'Check back soon!'}</div>
+      <div class="gal-empty-sub">${isAdmin && !showArchived ? 'Click + Add Photo to upload the first one' : 'Check back soon!'}</div>
     </div>`;
     return;
   }
@@ -3858,15 +3894,22 @@ function renderGallery(){
         <div class="gal-ov-title" style="margin-top:4px">${item.title}</div>
         <div class="gal-ov-date">${item.date || ''}</div>
       </div>
+      ${isAdmin ? `<button class="gal-del" onclick="event.stopPropagation();toggleGalleryArchive('${item.id}',${!item.archived})" title="${item.archived?'Unarchive':'Archive'}" style="right:38px;font-size:15px;background:rgba(60,60,70,.85)">${item.archived?'&#8617;':'&#128451;'}</button>` : ''}
       ${isAdmin ? `<button class="gal-del" onclick="event.stopPropagation();delGalleryItem('${item.id}')" title="Delete">×</button>` : ''}
     </div>`;
   }).join('');
 }
+async function toggleGalleryArchive(id,archived){
+  const item=gallery.find(g=>String(g.id)===String(id));if(!item)return;
+  item.archived=archived;
+  sv('uc_gallery_v7',gallery);
+  renderGallery();renderGalleryTabs();
+  if(dbConnected){ await dbSetGalleryArchived(id,archived); }
+  showToast(archived?'Photo Archived':'Photo Restored',archived?'Moved out of the main gallery.':'Back in the main gallery.');
+}
 
 function openLightbox(idx){
-  const filtered = galleryFilter === 'all'
-    ? gallery
-    : gallery.filter(g => g.clubId === galleryFilter);
+  const filtered = getFilteredGallery();
   if(!filtered.length) return;
   lightboxIdx = idx;
   const item = filtered[idx];
@@ -3883,9 +3926,7 @@ function openLightbox(idx){
 }
 
 function lightboxNav(dir){
-  const filtered = galleryFilter === 'all'
-    ? gallery
-    : gallery.filter(g => g.clubId === galleryFilter);
+  const filtered = getFilteredGallery();
   const newIdx = lightboxIdx + dir;
   if(newIdx >= 0 && newIdx < filtered.length) openLightbox(newIdx);
 }
@@ -3944,7 +3985,8 @@ async function doAddPhoto(){
     title, date,
     clubId: clubId2 === 'all' ? null : clubId2,
     img: imgUrl,
-    created: new Date().toISOString()
+    created: new Date().toISOString(),
+    archived: false
   };
 
   if(dbConnected){

@@ -166,20 +166,56 @@ async function restoreSession(){
 
 async function loadClubsFromDB() {
   try {
-    const rows = await sb('GET', 'clubs', {select: '*', order: 'sort_order'});
-    clubs = (rows || []).map(r => ({
-      ...r, id: r.id,
-      primary: r.primary_color, accent: r.accent_color, highlight: r.highlight_color
-    }));
-    // Enforce Warriors → Gladiators → Titans order
-    var _ORDER=['warriors','gladiators','titans'];
-    clubs.sort(function(a,b){
-      var ai=_ORDER.indexOf(a.id),bi=_ORDER.indexOf(b.id);
-      return (ai<0?99:ai)-(bi<0?99:bi);
+    const result = await sb('GET', 'clubs', {
+      select: '*'
     });
-    clubs.forEach(cl => { if (!clubData[cl.id]) clubData[cl.id] = {players:[], matchdays:[], headlines:[]}; });
+
+    console.log('Supabase clubs response:', result);
+
+    const rows = Array.isArray(result)
+      ? result
+      : (result && result.data ? result.data : []);
+
+    if (!rows.length) {
+      throw new Error('No clubs returned from Supabase.');
+    }
+
+    clubs = rows.map(r => ({
+      ...r,
+      id: r.id,
+      primary: r.primary_color,
+      accent: r.accent_color,
+      highlight: r.highlight_color
+    }));
+
+    const ORDER = ['warriors', 'gladiators', 'titans'];
+
+    clubs.sort((a, b) => {
+      const ai = ORDER.indexOf(a.id);
+      const bi = ORDER.indexOf(b.id);
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+    });
+
+    clubs.forEach(cl => {
+      if (!clubData[cl.id]) {
+        clubData[cl.id] = {
+          players: [],
+          matchdays: [],
+          headlines: []
+        };
+      }
+    });
+
+    sv('uc_clubs_v7', clubs);
+
+    console.log('Loaded clubs:', clubs);
+
     return true;
-  } catch(e) { console.warn('DB load clubs failed:', e.message); return false; }
+
+  } catch (e) {
+    console.error('loadClubsFromDB failed:', e);
+    return false;
+  }
 }
 
 function normalizeMatchdayRow(m){
